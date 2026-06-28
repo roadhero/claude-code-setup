@@ -1,0 +1,21 @@
+# --- Secrets (CLAUDE.md §11 — never commit) ---
+*.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.keystore
+*.jks
+*.p12
+**/secrets/
+service-account*.json
+*.tfstate
+*.tfstate.*
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# --- Build / deps (extend per stack) ---

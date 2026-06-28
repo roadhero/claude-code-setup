@@ -1,0 +1,17 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - name: Verify tag matches versionName
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VN="$(grep '^versionName=' version.properties | cut -d= -f2)"
+          [ "$TAG" = "$VN" ] || { echo "tag $TAG != versionName $VN"; exit 1; }
+      # TODO: signing secrets, ./gradlew bundleRelease, extract CHANGELOG section, gh release create

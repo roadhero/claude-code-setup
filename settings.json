@@ -1,0 +1,29 @@
+{
+  "includeCoAuthoredBy": false,
+  "effortLevel": "high",
+  "permissions": {
+    "defaultMode": "default",
+    "allow": [
+      "Bash(git:*)","Bash(ls:*)","Bash(cat:*)","Bash(head:*)","Bash(tail:*)","Bash(grep:*)","Bash(rg:*)","Bash(find:*)","Bash(tree:*)","Bash(wc:*)","Bash(echo:*)","Bash(which:*)","Bash(file:*)","Bash(stat:*)","Bash(diff:*)","Bash(sort:*)","Bash(uniq:*)","Bash(awk:*)","Bash(sed:*)","Bash(jq:*)","Bash(pwd)","Bash(mkdir:*)","Bash(touch:*)","Bash(cp:*)","Bash(mv:*)","Bash(test:*)",
+      "Bash(node:*)","Bash(npm:*)","Bash(pnpm:*)","Bash(yarn:*)","Bash(npx:*)","Bash(bun:*)","Bash(deno:*)","Bash(tsc:*)","Bash(eslint:*)","Bash(prettier:*)","Bash(vitest:*)","Bash(jest:*)","Bash(playwright:*)",
+      "Bash(python:*)","Bash(python3:*)","Bash(pip:*)","Bash(pip3:*)","Bash(uv:*)","Bash(pytest:*)","Bash(ruff:*)","Bash(black:*)","Bash(mypy:*)","Bash(pyright:*)",
+      "Bash(./gradlew:*)","Bash(gradle:*)","Bash(kotlin:*)","Bash(ktlint:*)","Bash(java:*)","Bash(adb:*)",
+      "Bash(xcodebuild:*)","Bash(swift:*)","Bash(swiftlint:*)","Bash(swift-format:*)","Bash(swiftformat:*)","Bash(xcrun:*)","Bash(pod:*)","Bash(fastlane:*)","Bash(agvtool:*)","Bash(simctl:*)",
+      "Bash(docker:*)","Bash(docker-compose:*)","Bash(gh:*)","Bash(make:*)","Bash(curl:*)","Bash(wget:*)"
+    ],
+    "deny": [
+      "Bash(sudo:*)",
+      "Bash(rm -rf /*)","Bash(rm -rf ~*)","Bash(rm -rf $HOME*)","Bash(rm -rf .*)","Bash(rm -rf *)","Bash(rm -fr *)",
+      "Bash(git push --force:*)","Bash(git push -f:*)","Bash(git reset --hard:*)","Bash(git clean -fdx:*)",
+      "Bash(curl * | sh*)","Bash(curl * | bash*)","Bash(wget * | sh*)","Bash(wget * | bash*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash", "hooks": [ { "type": "command", "command": "$HOME/.claude/hooks/guard-commit.sh" } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "$HOME/.claude/hooks/format.sh" } ] }
+    ]
+  }
+}

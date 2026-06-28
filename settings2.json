@@ -1,0 +1,32 @@
+{
+  "includeCoAuthoredBy": false,
+  "effortLevel": "high",
+  "env": {
+    "CLAUDE_CODE_SUBAGENT_MODEL": "claude-opus-4-8"
+  },
+  "permissions": {
+    "defaultMode": "default",
+    "allow": [
+      "Bash(git:*)","Bash(ls:*)","Bash(cat:*)","Bash(head:*)","Bash(tail:*)","Bash(grep:*)","Bash(rg:*)","Bash(find:*)","Bash(tree:*)","Bash(wc:*)","Bash(echo:*)","Bash(which:*)","Bash(file:*)","Bash(stat:*)","Bash(diff:*)","Bash(sort:*)","Bash(uniq:*)","Bash(awk:*)","Bash(sed:*)","Bash(jq:*)","Bash(pwd)","Bash(mkdir:*)","Bash(touch:*)","Bash(cp:*)","Bash(mv:*)","Bash(test:*)",
+      "Bash(gcc:*)","Bash(g++:*)","Bash(clang:*)","Bash(clang++:*)","Bash(clang-format:*)","Bash(clang-tidy:*)","Bash(nvcc:*)","Bash(cmake:*)","Bash(make:*)","Bash(ninja:*)","Bash(ctest:*)","Bash(cargo:*)","Bash(rustc:*)","Bash(go:*)","Bash(gersemi:*)",
+      "Bash(python:*)","Bash(python3:*)","Bash(pip:*)","Bash(pip3:*)","Bash(uv:*)","Bash(pytest:*)","Bash(ruff:*)","Bash(black:*)","Bash(mypy:*)","Bash(pyright:*)","Bash(conda:*)","Bash(mamba:*)",
+      "Bash(perf:*)","Bash(nsys:*)","Bash(ncu:*)","Bash(valgrind:*)","Bash(gdb:*)","Bash(cuda-gdb:*)","Bash(compute-sanitizer:*)","Bash(nvidia-smi:*)","Bash(nvtop:*)","Bash(numactl:*)","Bash(taskset:*)","Bash(nproc)","Bash(lscpu)","Bash(free:*)","Bash(sensors:*)","Bash(mpirun:*)","Bash(mpiexec:*)",
+      "Bash(docker:*)","Bash(docker-compose:*)","Bash(gh:*)","Bash(curl:*)","Bash(wget:*)"
+    ],
+    "deny": [
+      "Bash(sudo:*)",
+      "Bash(rm -rf /*)","Bash(rm -rf ~*)","Bash(rm -rf $HOME*)","Bash(rm -rf .*)","Bash(rm -rf *)","Bash(rm -fr *)",
+      "Bash(git push --force:*)","Bash(git push -f:*)","Bash(git reset --hard:*)","Bash(git clean -fdx:*)",
+      "Bash(curl * | sh*)","Bash(curl * | bash*)","Bash(wget * | sh*)","Bash(wget * | bash*)",
+      "Bash(nvidia-smi --gpu-reset:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash", "hooks": [ { "type": "command", "command": "$HOME/.claude/hooks/guard-commit.sh" } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "$HOME/.claude/hooks/format.sh" } ] }
+    ]
+  }
+}
