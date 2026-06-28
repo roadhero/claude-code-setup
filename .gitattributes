@@ -1,0 +1,5 @@
+# This is a Claude Code config repo: mostly Markdown, a little Shell.
+# Count the Markdown (Linguist treats it as prose and ignores it by default)...
+*.md   linguist-detectable=true
+# ...and ignore the scaffolder's .tmpl files (Linguist mislabels them "Go Template").
+*.tmpl linguist-documentation
