@@ -19,7 +19,7 @@
 Per-repo overrides (drop into <repo>/.claude/agents/ — override the 15 globals by canonical name):
    Android repo → agents-android/   (7)
    iOS repo     → agents-ios/        (7)
-   Compute repo → agents-compute/    (21; 8 duplicate globals harmlessly, 13 are compute-specific)
+   Compute repo → agents-compute/    (21; 13 duplicate globals harmlessly, 8 are compute-specific)
 
 Per-repo CLAUDE.md (§19 only; inherits spine + auto-detected rule):
    generic template   → templates/CLAUDE.project.md
@@ -35,6 +35,7 @@ cp settings.json        ~/.claude/settings.json        # merge your model + enab
 cp settings2.json       ~/.claude/settings2.json        # kept for swapping; see note below
 cp rules/*.md           ~/.claude/rules/
 cp agents/*.md          ~/.claude/agents/
+cp -R agents-android agents-ios agents-compute ~/.claude/   # per-stack packs (the new-repo skill + per-repo overrides read these)
 cp hooks/*.sh           ~/.claude/hooks/ && chmod +x ~/.claude/hooks/*.sh
 cp -R skills/new-repo    ~/.claude/skills/
 

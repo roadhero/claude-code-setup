@@ -1,6 +1,6 @@
 # CLAUDE.md — Universal Software Engineering
 
-> Universal engineering spine — applies to every project regardless of stack. Platform-specific rules (the architecture / release / quality-gate / testing / concurrency / compliance sections — §5–8, §12, §13) load automatically from `~/.claude/rules/{web,android,ios}.md` when the matching tech is detected.
+> Universal engineering spine — applies to every project regardless of stack. Platform-specific rules (the architecture / release / quality-gate / testing / concurrency / compliance sections — §5–8, §12, §13) load automatically from `~/.claude/rules/{web,android,ios,compute}.md` when the matching tech is detected.
 > **Don't water down the workflow rules.** Every one exists because a real bug shipped without it.
 > **Cache boundary discipline.** Everything above the `===== CACHE BOUNDARY =====` marker near the end is static across releases and gets prompt-cached. Only §19 Project Context (below the boundary) is per-project; edits there don't invalidate the cached spine.
 

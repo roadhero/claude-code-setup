@@ -12,9 +12,9 @@ Most people publish a single `CLAUDE.md` and call it a setup. The thing that act
 | `rules/{web,android,ios,compute}.md` | Platform rule packs. Claude Code auto-loads the right one based on the files in your repo. |
 | `agents/` (15) | The default subagent roster: the four-hat chain (architect → senior-swe → code-reviewer → qa), plus specialists (security, performance, db-migration, debugger, devops, docs, design) and a delivery layer (TPM, scrum-master). |
 | `agents-android/` (7), `agents-ios/` (7), `agents-compute/` (21) | Per-stack overrides. Drop them into a repo's `.claude/agents/` and they override the generic ones of the same name with platform-brained versions. |
-| `hooks/guard-commit.sh` | A pre-commit guard that blocks force-pushes to protected branches, non-human committers, AI attribution lines, and obviously-staged secrets. |
+| `hooks/guard-commit.sh` | A Claude Code Bash hook (PreToolUse) that blocks the *agent* from force-pushing, committing as a non-human, writing AI attribution into a commit message, or staging obvious secrets. It guards Claude's git commands — not a human typing `git` directly in their own terminal. |
 | `hooks/format.sh` | Auto-formats edited files by extension across every stack. Missing formatter is a silent no-op, never an error. |
-| `skills/new-repo/` | A scaffolder skill: spins up a new repo with the right `CLAUDE.md`, `.gitignore`, quality gate, and release workflow per stack. |
+| `skills/new-repo/` | A scaffolder skill: spins up a new repo with the right `CLAUDE.md`, `.gitignore`, quality gate, and release workflow. Scaffolds **web + Android**; iOS and compute ship as rule + agent packs (no scaffolder for them yet). |
 | `templates/` | Blank project `CLAUDE.md` templates (generic + compute) to copy into a new repo and fill in. |
 | `examples/CLAUDE.example-web.md` | A filled-in example so you can see what "done" looks like before you write your own. |
 | `STRUCTURE.md` | The full layout, install steps, and how the two-settings-file swap works. **Read this first.** |

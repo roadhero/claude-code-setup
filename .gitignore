@@ -11,6 +11,9 @@ Thumbs.db
 !.env.example
 *.pem
 *.key
+*.keystore
+*.jks
+*.p12
 credentials.json
 service-account*.json
 
