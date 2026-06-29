@@ -14,7 +14,7 @@ case "$F" in
   *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.json|*.css|*.scss|*.html|*.md)
      command -v prettier >/dev/null && prettier --write "$F" >/dev/null 2>&1 ;;
   *.py)
-     command -v ruff >/dev/null && { ruff format "$F" >/dev/null 2>&1; ruff check --fix "$F" >/dev/null 2>&1; } ;;
+     command -v ruff >/dev/null && ruff format "$F" >/dev/null 2>&1 ;;
   *.c|*.cc|*.cpp|*.cxx|*.h|*.hpp|*.hxx|*.cu|*.cuh)
      command -v clang-format >/dev/null && clang-format -i "$F" ;;
   *.go)
