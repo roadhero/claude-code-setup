@@ -45,7 +45,7 @@ This is opinionated and built for how my team works. The git rules assume PR-bas
 
 ## More
 
-- The book: **42: The AI Builder's Stack** — free to read at [eltexsoft.com](https://eltexsoft.com).
+- The book: **42: The AI Builder's Stack** — sample chapters are at [eltexsoft.com](https://eltexsoft.com); the full book is on Amazon.
 - The chapter on Claude Code goes deep on the why behind all of this.
 
 MIT licensed. Use it, fork it, change it. No attribution required.
