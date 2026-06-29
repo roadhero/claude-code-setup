@@ -14,7 +14,7 @@
     "deny": [
       "Bash(sudo:*)",
       "Bash(rm -rf /*)","Bash(rm -rf ~*)","Bash(rm -rf $HOME*)","Bash(rm -rf .*)","Bash(rm -rf *)","Bash(rm -fr *)",
-      "Bash(git push --force:*)","Bash(git push -f:*)","Bash(git reset --hard:*)","Bash(git clean -fdx:*)",
+      "Bash(git push*--force*)","Bash(git push -f:*)","Bash(git push * -f)","Bash(git push * -f *)","Bash(git reset --hard:*)","Bash(git clean -fdx:*)",
       "Bash(curl * | sh*)","Bash(curl * | bash*)","Bash(wget * | sh*)","Bash(wget * | bash*)"
     ]
   },
