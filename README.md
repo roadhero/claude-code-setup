@@ -1,17 +1,17 @@
 # Claude Code setup
 
-This is the actual Claude Code configuration I run day to day at [EltexSoft](https://eltexsoft.com): a stack-agnostic engineering "spine," platform-specific rule packs that auto-activate, a roster of **50 subagents across four stacks**, two safety hooks, and a repo scaffolder. It's the same setup I describe in **42: The AI Builder's Stack**. Take what's useful.
+This is the actual Claude Code configuration I run day to day at [EltexSoft](https://eltexsoft.com): a stack-agnostic engineering "spine," platform-specific rule packs that load per file via path globs, a roster of **42 subagents across four stacks**, a commit-guard hook plus an auto-formatter, and a repo scaffolder. It's the same setup I describe in **42: The AI Builder's Stack**. Take what's useful.
 
-Most people publish a single `CLAUDE.md` and call it a setup. The thing that actually makes Claude Code reliable is structure: a global file that never changes, rules that load only when the matching tech is detected, agents scoped to one job each, and hooks that stop bad commits before they happen. That's what's here.
+Most people publish a single `CLAUDE.md` and call it a setup. The thing that actually makes Claude Code reliable is structure: a global file that never changes, rules that load only when Claude reads a file matching their path globs, agents scoped to one job each, and hooks that stop bad commits before they happen. That's what's here.
 
 ## What's inside
 
 | Path | What it is |
 | --- | --- |
 | `CLAUDE.md` | The universal spine. Workflow, git rules, coding guidelines, secrets handling, anti-patterns. Stack-agnostic, applies everywhere. The big one. |
-| `rules/{web,android,ios,compute}.md` | Platform rule packs. Claude Code auto-loads the right one based on the files in your repo. |
-| `agents/` (15) | The default subagent roster: the four-hat chain (architect → senior-swe → code-reviewer → qa), plus specialists (security, performance, db-migration, debugger, devops, docs, design) and a delivery layer (TPM, scrum-master). |
-| `agents-android/` (7), `agents-ios/` (7), `agents-compute/` (21) | Per-stack overrides. Drop them into a repo's `.claude/agents/` and they override the generic ones of the same name with platform-brained versions. |
+| `rules/{web,android,ios,compute}.md` | Platform rule packs. Each carries a `paths:` frontmatter glob; Claude Code loads a pack when it reads a file matching that glob (`*.kt` → android, `*.swift` → ios, `*.ts`/`*.py` → web, `*.cpp`/`*.cu` → compute). Path-triggered, so packs whose files you never touch stay out of context. |
+| `agents/` (15) | The default subagent roster: the four-hat chain (architect → senior-swe → code-reviewer → qa), plus specialists (security, performance, db-migration, debugger, devops, docs, design), release-engineer + tech-writer, and a delivery layer (TPM, scrum-master). |
+| `agents-android/` (7), `agents-ios/` (7), `agents-compute/` (13) | Per-stack overrides. Drop them into a repo's `.claude/agents/` and they override the generic ones of the same name with platform-brained versions. |
 | `hooks/guard-commit.sh` | A Claude Code Bash hook (PreToolUse) that blocks the *agent* from force-pushing, committing as a non-human, writing AI attribution into a commit message, or staging obvious secrets. It guards Claude's git commands — not a human typing `git` directly in their own terminal. |
 | `hooks/format.sh` | Auto-formats edited files by extension across every stack. Missing formatter is a silent no-op, never an error. |
 | `skills/new-repo/` | A scaffolder skill: spins up a new repo with the right `CLAUDE.md`, `.gitignore`, quality gate, and release workflow. Scaffolds **web + Android**; iOS and compute ship as rule + agent packs (no scaffolder for them yet). |
@@ -21,18 +21,20 @@ Most people publish a single `CLAUDE.md` and call it a setup. The thing that act
 
 ## The idea in one paragraph
 
-Two tiers. The **global** tier (`~/.claude/CLAUDE.md` + `rules/` + `agents/` + `hooks/`) is everything that's true regardless of what you're building. The **project** tier is a short `CLAUDE.md` at the repo root that holds only what's specific to that project (§19: stack, quality gate, release pointers, compliance scope). The spine gets prompt-cached and never changes; the project file is the only thing you edit per repo. Rules and agents specialize automatically based on the repo's actual files. You configure once, then mostly leave it alone.
+Two tiers. The **global** tier (`~/.claude/CLAUDE.md` + `rules/` + `agents/` + `hooks/`) is everything that's true regardless of what you're building. The **project** tier is a short `CLAUDE.md` at the repo root that holds only what's specific to that project (§19: stack, quality gate, release pointers, compliance scope). The spine gets prompt-cached and never changes; the project file is the only thing you edit per repo. Rules specialize by path-trigger (a pack loads when Claude reads a file its `paths:` glob matches); agents specialize by name-override (a repo's `.claude/agents/<name>.md` shadows the global agent of the same name). Neither scans the repo up front. You configure once, then mostly leave it alone.
 
 ## Install
 
-Mac/Linux, with Claude Code already installed. Full steps and the per-repo install are in [`STRUCTURE.md`](./STRUCTURE.md). The short version:
+Mac/Linux, with Claude Code already installed. Full steps and the per-repo install are in [`STRUCTURE.md`](./STRUCTURE.md). First install the hook prerequisite `jq` (`guard-commit.sh` fails closed without it): `brew install jq` (macOS) / `sudo apt-get install jq` (Debian/Ubuntu). Then:
 
 ```bash
+git clone https://github.com/roadhero/claude-code-setup.git && cd claude-code-setup
 mkdir -p ~/.claude/rules ~/.claude/agents ~/.claude/hooks ~/.claude/skills
 cp CLAUDE.md      ~/.claude/CLAUDE.md
 cp settings.json  ~/.claude/settings.json      # merge your own model / plugin blocks in
 cp rules/*.md     ~/.claude/rules/
 cp agents/*.md    ~/.claude/agents/
+cp -R agents-android agents-ios agents-compute ~/.claude/   # per-stack packs (scaffolder + per-repo overrides read these)
 cp hooks/*.sh     ~/.claude/hooks/ && chmod +x ~/.claude/hooks/*.sh
 cp -R skills/new-repo ~/.claude/skills/
 ```

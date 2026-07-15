@@ -1,7 +1,7 @@
 # CLAUDE.md — <project name>
 
 > Spine (workflow, git, coding, secrets, anti-patterns…) loads from ~/.claude/CLAUDE.md.
-> Platform rules (web/android/ios) auto-activate from ~/.claude/rules/ based on this repo's files.
+> Platform rules live in ~/.claude/rules/; each loads when Claude reads a file matching its stack's `paths:` glob (path-triggered — `.kt` → android, `.swift` → ios, `.ts`/`.py` → web, `.cpp`/`.cu` → compute), so you don't reference them here.
 > This file holds ONLY project-specific context. Keep it short.
 
 ## 19. Project Context

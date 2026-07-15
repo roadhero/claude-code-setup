@@ -19,9 +19,9 @@
 Per-repo overrides (drop into <repo>/.claude/agents/ — override the 15 globals by canonical name):
    Android repo → agents-android/   (7)
    iOS repo     → agents-ios/        (7)
-   Compute repo → agents-compute/    (21; 13 duplicate globals harmlessly, 8 are compute-specific)
+   Compute repo → agents-compute/    (13; 5 compute-brained overrides of the four-hat chain + 8 compute-only specialists — the 7 byte-identical global copies and the release-engineer near-dupe were dropped so those names fall through to ~/.claude/agents/)
 
-Per-repo CLAUDE.md (§19 only; inherits spine + auto-detected rule):
+Per-repo CLAUDE.md (§19 only; inherits spine + whichever rule pack your files path-trigger):
    generic template   → templates/CLAUDE.project.md
    compute template   → templates/CLAUDE.project.compute.md
    filled example     → examples/CLAUDE.example-web.md (fictional web SaaS, shows §19 filled in)
@@ -29,6 +29,7 @@ Per-repo CLAUDE.md (§19 only; inherits spine + auto-detected rule):
 
 ## Install (Mac)
 ```bash
+git clone https://github.com/roadhero/claude-code-setup.git && cd claude-code-setup
 mkdir -p ~/.claude/rules ~/.claude/agents ~/.claude/hooks ~/.claude/skills
 cp CLAUDE.md            ~/.claude/CLAUDE.md
 cp settings.json        ~/.claude/settings.json        # merge your model + enabledPlugins blocks in
@@ -62,7 +63,10 @@ Both reference the **same** `guard-commit.sh` + `format.sh`; they differ only in
 > **⚠ Subagent model:** `settings2.json` pins `CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-4-8`. If your main model is higher-tier than Opus, this line **downgrades** subagents to Opus. Delete the `env` block if you want subagents to inherit your main model. It's there only because compute work is rule-heavy and a deterministic pin can be worth it.
 
 ## Hook paths
-Both settings files reference the hooks via `$HOME/.claude/hooks/...`, which the shell expands to your home directory, so they work for any user without editing. Verify with `/hooks` inside Claude Code. Install the prereqs the format hook needs per stack: `jq` (required), plus `prettier`/`ktlint`/`swift-format`/`ruff`/`clang-format` as applicable.
+Both settings files reference the hooks via `$HOME/.claude/hooks/...`, which the shell expands to your home directory, so they work for any user without editing. Verify with `/hooks` inside Claude Code. Prerequisites: `jq` is **required by `guard-commit.sh`** — without it, git commit/push are blocked (fail-closed); install it first with `brew install jq` (macOS) / `sudo apt-get install jq`. The format hook additionally uses `prettier`/`ktlint`/`swift-format`/`ruff`/`clang-format` per stack, each a silent no-op if absent.
+
+## Rule pack loading model
+The four packs install to `~/.claude/rules/` together and each declares a `paths:` glob in its YAML frontmatter. Claude Code loads a pack the first time it reads a file whose path matches (`*.kt`/`*.gradle*` → android.md, `*.swift` → ios.md, `*.ts`/`*.py`/`*.go` → web.md, `*.cpp`/`*.cu`/`CMakeLists.txt` → compute.md). Path-triggered, not stack-detection: nothing scans the repo up front, and a pack that never path-matches in a session never enters context (that is the context saving). It is also lazy — during pure planning, before any source file is read, no pack is loaded; it lands when the architect reads existing source. Verify what loaded with `/memory`. Python is owned solely by web.md; compute.md triggers only on native/CUDA/build files, so a `.py` file never loads two packs. Single-stack eager-load: drop one pack into a repo's own `.claude/rules/` with its `paths:` frontmatter removed — a rules file with no `paths:` loads unconditionally at launch.
 
 ## Agent override model
-A repo's `.claude/agents/<name>.md` overrides the user-scope `~/.claude/agents/<name>.md` with the same `name:` field. So dropping the 7 Android agents (canonical names architect/senior-swe/code-reviewer/qa/release-engineer/docs-reconciler/performance-engineer) into an Android repo swaps the generic four-hat chain for Android-brained ones; the other 8+ generics still apply. Same pattern for iOS and compute.
+A repo's `.claude/agents/<name>.md` overrides the user-scope `~/.claude/agents/<name>.md` with the same `name:` field. So dropping the 7 Android agents (canonical names architect/senior-swe/code-reviewer/qa/release-engineer/docs-reconciler/performance-engineer) into an Android repo swaps the generic four-hat chain for Android-brained ones; the other 8 generics still apply. Same pattern for iOS (7). For compute, the pack now ships only 5 four-hat overrides (architect/senior-swe/code-reviewer/qa/performance-engineer) plus 8 compute-only specialists, so the other 10 globals fall through unchanged.
