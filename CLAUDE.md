@@ -1,6 +1,6 @@
 # CLAUDE.md — Universal Software Engineering
 
-> Universal engineering spine — applies to every project regardless of stack. Platform-specific rules (the architecture / release / quality-gate / testing / concurrency / compliance sections — §5–8, §12, §13) load automatically from `~/.claude/rules/{web,android,ios,compute}.md` when the matching tech is detected.
+> Universal engineering spine — applies to every project regardless of stack. Platform-specific rules (the architecture / release / quality-gate / testing / concurrency / compliance sections — §5–8, §12, §13) live in `~/.claude/rules/{web,android,ios,compute}.md`; each pack declares a `paths:` glob in its frontmatter, so Claude Code loads it on demand the moment it reads a file that pack matches (`*.kt`/`*.gradle*` → android, `*.swift` → ios, `*.ts`/`*.py`/`*.go`/`*.rs` → web, `*.cpp`/`*.cu`/`CMakeLists.txt` → compute). Path-triggered, not stack-detection: nothing scans the repo up front, and a pack whose files you never open never enters context.
 > **Don't water down the workflow rules.** Every one exists because a real bug shipped without it.
 > **Cache boundary discipline.** Everything above the `===== CACHE BOUNDARY =====` marker near the end is static across releases and gets prompt-cached. Only §19 Project Context (below the boundary) is per-project; edits there don't invalidate the cached spine.
 
@@ -40,7 +40,7 @@ Agents live under `.claude/agents/` (project) or `~/.claude/agents/` (user, all 
 | `technical-program-manager`  | Scope, sequence, risk, stakeholders  | Mutating    | Planning an initiative, prioritizing, status/RAID, change control. |
 | `scrum-master`               | Cadence, flow, impediments, health   | Mutating    | Sprint planning/daily/retro, flow health, removing blockers. |
 
-**Concurrency classification.** Read-only agents are safe to invoke in parallel (they don't touch files); mutating agents must run serially against the same branch (they edit files and create commits). Today, Claude Code orchestrates this serially by default; the metadata future-proofs the system for orchestrators that parallelize the safe subset, which is typically a 2–5× speedup on multi-step turns.
+**Concurrency classification.** Mutating agents hold `Edit`/`Write` and must run serially against the same branch; read-only agents omit `Edit`/`Write` and are safe to invoke in parallel. (Read-only agents may still hold `Bash` for inspection, so the boundary is a documented convention backed by the `tools:` list, not a hard sandbox — the Concurrency column in the roster above is the authoritative index.) Claude Code orchestrates serially today; an orchestrator that parallelized the read-only subset could read each agent's `tools:` allowlist to derive the safe set — typically a 2–5× speedup on multi-step turns.
 
 **Trust-but-verify rule.** Subagents return narrative summaries that can hallucinate file paths, line numbers, or recent activity. Always verify a subagent's specific claims (file content, line refs, issue numbers) before acting on them. Treat the agent's report as a hypothesis to confirm with `Read` / `Grep`, not as ground truth.
 
@@ -52,6 +52,7 @@ Agents live under `.claude/agents/` (project) or `~/.claude/agents/` (user, all 
 
 - Never add `Co-authored-by` lines in commit messages.
 - Never add `Generated with Claude Code` or similar attribution lines in PR descriptions or commit bodies.
+- Attribution trailers are suppressed at source: `settings.json` sets `attribution: { commit: "", pr: "", sessionUrl: false }` (the documented mechanism, which supersedes the deprecated `includeCoAuthoredBy`); `hooks/guard-commit.sh` is the backstop.
 - All commits must use the repo's configured git user name and email — do not override.
 - Never commit as "claude", "Claude", "Cursor Agent", "cursoragent", or any AI tool name.
 - Before committing, verify with `git config user.name` — if it's not a human name, fix it.
@@ -397,7 +398,7 @@ When a second engineer joins this codebase (or this CLAUDE.md gets dropped into 
 - Subagents in `.claude/agents/` are committed and travel with the repo. Everyone on the team gets the same architect / reviewer / qa personas — that's the point.
 - Personal extensions live in `~/.claude/agents/` (your home, not the repo). Don't fork the repo's agents in-place; layer personal agents on top.
 - When a personal agent proves valuable across multiple PRs, propose adding it to the repo via a `chore/agent: ...` PR. The team can review, refine, and adopt.
-- **Concurrency metadata travels with the agent.** Always include `concurrency: read-only` or `concurrency: mutating` in the frontmatter. Future orchestrators rely on it for parallelization decisions.
+- **Read-only vs mutating is signalled by the `tools:` allowlist, not a frontmatter flag.** A read-only agent omits `Edit`/`Write`; a mutating one includes them. Document the class in the §1 roster Concurrency column (the authoritative index). Do NOT add a `concurrency:` frontmatter key — it is not a supported sub-agent field, so the harness silently ignores it. Confirm any frontmatter key against the sub-agents docs before adding it.
 
 ------
 
@@ -421,77 +422,58 @@ The discipline: if a use case doesn't fit any of these, the architecture has a g
 
 ## 19. Project Context
 
+> **Dual role of this section.** This file auto-loads as the project instructions when you work *in this repo*, so §19 below describes **this repo**. When you install the spine as the user-global `~/.claude/CLAUDE.md`, blank §19 — per §17.1 user-global memory carries no single-project context; each of your own repos gets its own root `CLAUDE.md` from `templates/`.
+
 ### 19.1 What is this project?
 
-- **One-paragraph description:** 
-  - TODO: one-paragraph description (the product, the user, the value).
+- **One-paragraph description:** This repository *is* a distributed Claude Code configuration, not an application: a stack-agnostic engineering spine (this `CLAUDE.md`, §1–18), platform rule packs (`rules/`), a 42-agent roster across four stacks (`agents/`, `agents-android/`, `agents-ios/`, `agents-compute/`), two safety hooks (`hooks/`), and a repo-scaffolder skill (`skills/new-repo/`). Users copy it into `~/.claude/` and per-repo. The product is the configuration's correctness and internal consistency; nothing is compiled or deployed. Public, MIT: github.com/roadhero/claude-code-setup.
 
 ### 19.2 Stack
 
-State versions specifically. "Latest" rots; pinned versions document reality.
-
-- **Language(s):** TODO
-  - *Example:* `TypeScript 5.6, with a small Rust binary (1.81) for the diff engine`
-- **Runtime / platform:** TODO
-  - *Example:* `Node.js 22 LTS on Alpine 3.20 containers`
-- **Framework(s):** TODO
-  - *Example:* `Fastify 5 for HTTP, BullMQ for jobs, Drizzle ORM`
-- **Storage:** TODO
-  - *Example:* `PostgreSQL 16 (primary), Redis 7 (queue + cache), S3-compatible object store for diffs`
-- **Build / package:** TODO
-  - *Example:* `pnpm 9, with Turborepo for the monorepo`
-- **Test runner:** TODO
-  - *Example:* `vitest for unit + integration, Playwright for end-to-end`
-- **CI:** TODO
-  - *Example:* `GitHub Actions, self-hosted runners for the integration tests, GitHub-hosted for everything else`
-- **Distribution channel:** TODO
-  - *Example:* `Container image pushed to GHCR, deployed via ArgoCD to internal Kubernetes`
+- **Language(s):** Markdown (spine/rules/agents) + Bash targeting macOS system bash 3.2 (`hooks/*.sh`) + JSON (`settings.json`, `settings2.json`). No compiled code.
+- **Runtime / platform:** Claude Code CLI on macOS/Linux; hooks run via the user shell and `jq` is a hard runtime dependency of both hooks.
+- **Framework(s):** None (only Claude Code extension points — §18).
+- **Storage:** None.
+- **Build / package:** None — files are copied verbatim into `~/.claude/`; `package.json` is intentionally absent.
+- **Test runner:** None; verification is static (§19.3).
+- **CI:** None currently (no `.github/workflows`); the gate runs locally before tagging.
+- **Distribution channel:** Public GitHub `roadhero/claude-code-setup`, MIT, released as annotated `vX.Y.Z` tags + GitHub Releases (§18B Rule 2). No package registry.
 
 ### 19.3 Local quality gate
 
-Concrete commands a fresh clone can run. Order matches §7.1 (fail fast on cheap steps).
-
-bash
+Concrete commands a fresh clone can run (verified green: shellcheck exit 0, jq exit 0).
 
 ```bash
-# Example — replace with your project's actual commands.
-pnpm format:check               # prettier --check .
-pnpm lint                       # eslint . --max-warnings=0
-pnpm typecheck                  # tsc --noEmit
-pnpm test                       # vitest run --coverage
-pnpm build                      # next build && tsc -p tsconfig.build.json
-pnpm test:integration           # vitest run --config vitest.integration.config.ts
+shellcheck hooks/*.sh                       # bash hooks lint clean (bash 3.2 target)
+jq empty settings.json settings2.json       # settings parse as valid JSON
+grep -L '^name:' agents*/*.md               # every agent declares a name; prints nothing when clean
+# Optional, advisory (not installed by default; repo ships no markdownlint config):
+# npx --yes markdownlint-cli2 "**/*.md" "!skills/**/templates/**"
 ```
 
-Principle: every command must be runnable from a fresh clone without further setup beyond `pnpm install`. If a step needs Docker, scaffolded fixtures, or env vars, document the prerequisite explicitly.
+Requires `shellcheck` and `jq` (the hooks need `jq` at runtime too) — `brew install shellcheck jq`. No build step; files ship verbatim. Markdown prose is reviewed by eye, not hard-gated.
 
 ### 19.4 Current release pointers
 
-- **Live version:** TODO
-  - *Example:* `v2.14.3 (released 2026-04-22)`
-- **In flight:** TODO
-  - *Example:* `v2.15.0 — theme: "webhook retry hardening", ETA 2026-05-15`
-- **CHANGELOG:** ./CHANGELOG.md
-- **Spec / PRD:** ./docs/SPEC.md
-  - *If specs live elsewhere (Notion, Linear, Confluence), put the canonical link here. Don't maintain two sources of truth.*
-- **Roadmap:** ./docs/ROADMAP.md
-- **WIP file:** ./WIP.md
-  - *Only exists when a session ended mid-task; deleted on next merge. See §17.1.*
+- **Live version:** v1.0.1 (annotated tag, latest on `main`).
+- **In flight:** none (set per session).
+- **CHANGELOG:** none — release notes are the GitHub Release body generated from `git log` between tags (§18B Rule 2).
+- **Spec / PRD:** `README.md` + `STRUCTURE.md` are canonical.
+- **Roadmap:** none.
+- **WIP file:** none.
 
 ### 19.5 Compliance scope
 
-- TODO
-  - *Example (B2B SaaS in EU + US):* `GDPR (EU users), CCPA (CA users), SOC 2 Type II (in audit, target 2026-Q4). No HIPAA. No PCI-DSS — payment data is tokenized by Stripe; we never see PAN.`
-  - *Example (internal tool):* `None — internal-only, no external users, no regulated data.`
-  - *Principle:* be specific about what applies AND what explicitly doesn't. "SOC 2 doesn't apply because X" is more useful than silence.
+- None. Public, MIT-licensed configuration repo — no runtime, no users, no data collection, no network service, no regulated data. The only governance concern is the repo's own git hygiene (no secrets, no AI-tool attribution in history), enforced at commit time by `hooks/guard-commit.sh` plus `.gitignore`.
 
 ### 19.6 Project-specific overrides
 
 > Each override erodes the predictability §1–18 provides; treat them as debt with a documented reason. Review quarterly: can any be removed?
 
-- *(none — defaults apply)*
-- *Example override:* `§7.1 quality gate skips integration tests on PR (runs nightly instead) — reason: integration suite takes 25 min, blocks PR throughput. Tracked in #1247 for a fix.`
-- *Example override:* `§2 squash-merge replaced with rebase-merge — reason: we use a release-train workflow that depends on commit-level traceability.`
+- §19.3 replaces the build/unit/integration gate with static analysis (shellcheck + jq + a name-invariant grep) — reason: this repo ships configuration, not code; nothing to compile or unit-test.
+- §18B Rule 2 release notes come from the GitHub Release body instead of a `CHANGELOG.md` — reason: no CHANGELOG is maintained here.
+- Platform rule-pack path-triggering (`rules/{web,android,ios,compute}.md`) never fires in this repo — it has no matching source files. Expected.
+- No CI yet — candidate follow-up: a GitHub Action running §19.3 on PR.
 
 ------
 
