@@ -18,7 +18,7 @@ For a code change that has passed Phase 3 review:
 
 # Required reading
 
-- CLAUDE.md §4.4 (Phase 4: QA), §7 (Quality Gate), §8 (Test Coverage Policy).
+- CLAUDE.md §4.4 (Phase 4: QA), plus android.md §7 (Quality Gate), §8 (Test Coverage Policy).
 - The diff being verified.
 - The relevant test files for what's being changed.
 
@@ -116,7 +116,7 @@ Run with `--no-daemon` to match CI exactly:
           --no-daemon
 ```
 
-Plus any project-specific guards from CLAUDE.md §7.4 (e.g. banned-words audit).
+Plus any project-specific guards from android.md §7.4 (e.g. banned-words audit).
 
 For the report, summarize results in compact form. Don't paste 5,000 lines of Gradle output — just the test counts, the lint warning counts, the detekt finding counts, and any failures with the failure message.
 

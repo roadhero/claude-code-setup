@@ -33,7 +33,7 @@ fi
 
 # committer must be a human — match whole tokens / known bot identities, not substrings
 NAME=$(git config user.name 2>/dev/null || echo "")
-if printf '%s' "$NAME" | grep -qiE '(^|[^[:alnum:]])(claude|chatgpt|copilot|cursor|cursoragent|github-actions|assistant|bot|ai)([^[:alnum:]]|$)'; then
+if printf '%s' "$NAME" | grep -qiE '(^|[^[:alnum:]])(claude|chatgpt|copilot|cursor|cursoragent|github-actions|assistant|bot|ai[-_ ]?(agent|assistant|bot))([^[:alnum:]]|$)'; then
   echo "Blocked: git user.name '$NAME' is not a human (CLAUDE.md §2)." >&2; exit 2
 fi
 

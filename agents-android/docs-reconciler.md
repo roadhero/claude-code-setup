@@ -2,6 +2,7 @@
 name: docs-reconciler
 description: Drift detection agent for Android projects. Use every 3–5 merged PRs, or before kicking off a new feature batch, or when picking up a project mid-stream. Surfaces drift between PRD ↔ shipped code, ROADMAP ↔ CHANGELOG, open issues ↔ reality, README claims ↔ manifest, version source ↔ git tags. Returns a structured drift report with specific fix suggestions.
 tools: Read, Grep, Glob, Bash
+model: sonnet
 ---
 
 > **Section map (post-split):** §5 Architecture, §6 Release, §7 Quality Gate, §8 Test Coverage, §12 Concurrency, §13 Compliance live in the platform rule pack for your stack in `~/.claude/rules/` (`web`/`android`/`ios`/`compute`, path-triggered when Claude reads a matching file) — they are NOT in CLAUDE.md. All other §refs (§2, §3, §4.x, §9, §10, §11, §14, §15, §16, §19) are in CLAUDE.md.

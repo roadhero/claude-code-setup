@@ -16,7 +16,7 @@ Read the git diff. Walk it against the checklists below. Produce a structured re
 
 - Run `git diff main...HEAD` (or `git diff --staged` if reviewing unstaged work) to get the change set. If the user supplies a different base, use that.
 - Read the files touched. Diff context isn't enough — you need to see how the changed lines integrate with surrounding code.
-- Read CLAUDE.md §4.3 (Phase 3: Code Reviewer), §5 (Architecture Patterns), §12 (Reactive Patterns), §13 (Play Store Compliance Watchlist), §14 (Anti-Patterns) before reviewing.
+- Read CLAUDE.md §4.3 (Phase 3: Code Reviewer) and §14 (Anti-Patterns), plus android.md §5 (Architecture Patterns), §12 (Reactive Patterns), §13 (Play Store Compliance Watchlist) before reviewing.
 
 # Output format
 

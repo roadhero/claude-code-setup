@@ -17,7 +17,7 @@ paths:
 
 # Compute Overlay — C++ / CUDA / Parallel Python
 
-> Path-triggered: loads when Claude reads a native/CUDA/build file matching this pack's `paths:` glob (`*.cpp`/`*.cc`/`*.cu`/`*.cuh`/`*.h`, `CMakeLists.txt`, `Makefile`, `meson.build`; see frontmatter). Python is owned by web.md — this pack's parallel-Python guidance rides in alongside the native files a compute repo always carries. Target box (set once per install): CPU `<model — cores/threads, NUMA nodes>` · RAM `<host GB>` · GPU `<count × model — arch, VRAM, interconnect>` · OS `<distro>`; set the GPU arch once as CUDA_ARCH (e.g. sm_86). Default toolchain: GCC/Clang + CUDA Toolkit + nvcc, CMake + Ninja, Python via `uv`. *Reference profile this pack ships with: Threadripper 5995WX (64c/128t, multi-NUMA), 512 GB, 2× RTX 3090 (Ampere sm_86, 24 GB, no NVLink → PCIe P2P), Ubuntu — replace with yours.* Sections mirror the spine's numbering: §5 architecture, §6 release, §7 quality gate, §8 testing, §12 concurrency, §13 compliance.
+> Path-triggered: loads when Claude reads a native/CUDA/build file matching this pack's `paths:` glob (`*.cpp`/`*.cc`/`*.cu`/`*.cuh`/`*.h`, `CMakeLists.txt`, `Makefile`, `meson.build`; see frontmatter). Python is owned by web.md — this pack's parallel-Python guidance rides in alongside the native files a compute repo always carries. Target box (set once per install): CPU `<model — cores/threads, NUMA nodes>` · RAM `<host GB>` · GPU `<count × model — arch, VRAM, interconnect>` · OS `<distro>`; set the GPU arch once as CUDA_ARCH (e.g. sm_86). Default toolchain: GCC/Clang + CUDA Toolkit + nvcc, CMake + Ninja, Python via `uv`. *Reference profile this pack ships with: Threadripper 5995WX (64c/128t, multi-NUMA), 512 GB, 2× RTX 3090 (Ampere sm_86, 24 GB; P2P only via a 2-way NVLink bridge — GeForce has no PCIe P2P), Ubuntu — replace with yours.* Sections mirror the spine's numbering: §5 architecture, §6 release, §7 quality gate, §8 testing, §12 concurrency, §13 compliance.
 
 ## 5. Architecture Patterns (compute)
 
@@ -74,7 +74,7 @@ A clean build under `-Wall -Wextra -Werror` (and `nvcc -Xcompiler -Wall`) is non
 **GPU:**
 - **Memory hierarchy is the game:** coalesce global access; use shared memory for reuse; watch bank conflicts; keep occupancy high but not at the cost of register spills.
 - **Streams** for overlap (copy/compute); events for timing/sync. Default stream serializes — use non-default streams for concurrency.
-- **Multi-GPU:** no NVLink on consumer GeForce → peer access is over PCIe; partition work to minimize cross-device traffic. Set device explicitly (`cudaSetDevice`); one context discipline per device.
+- **Multi-GPU:** consumer GeForce has no PCIe peer-to-peer (driver-disabled); the RTX 3090's only P2P path is a 2-way NVLink bridge. Without a bridge, cross-device data stages through pinned host memory — partition work to minimize cross-device traffic. Set device explicitly (`cudaSetDevice`); one context discipline per device.
 - **Always check CUDA return codes** (`CUDA_CHECK(...)` macro) — a swallowed `cudaError_t` is a silent corruption. Sync before timing.
 - Prefer `__restrict__`, avoid divergent warps on the hot path, use `--use_fast_math` only when the `numerics-engineer` signs off.
 

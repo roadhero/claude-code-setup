@@ -21,7 +21,7 @@ Starting or initializing a new project, or a repo that's missing the standard sc
 ## Procedure
 
 1. Determine stack (detect or ask). Set `STACK=web|android`.
-2. From this skill's `templates/`, copy `common/` + `<STACK>/` files into the repo (except `gitignore-extra.tmpl`, which step 3 appends), **skipping any that already exist**. Template files use a `.tmpl` suffix to avoid clobbering — strip it on copy (e.g. `gitignore.tmpl` → `.gitignore`, `<STACK>/CLAUDE.md.tmpl` → `./CLAUDE.md`). Workflow templates land under `.github/workflows/` (`gate.yml`, `release.yml`); `docs/` stubs under `docs/`.
+2. From this skill's `templates/`, copy `common/` + `<STACK>/` files into the repo (except `gitignore-extra.tmpl`, which step 3 appends), **skipping any that already exist**. Template files use a `.tmpl` suffix to avoid clobbering — strip it on copy (e.g. `gitignore.tmpl` → `.gitignore`, `<STACK>/CLAUDE.md.tmpl` → `./CLAUDE.md`). Workflow templates land under `.github/workflows/` (`gate.yml`, `release.yml`); `docs/` stubs under `docs/` (`REQUIREMENTS.md`, `ROADMAP.md`, and the seed ADR `common/0001-foundation.md.tmpl` → `docs/decisions/0001-foundation.md`).
 3. **Merge the stack ignores.** `gitignore-extra.tmpl` is not a standalone file — append its contents to the `.gitignore` created in step 2 (idempotent: skip if those lines are already present). This is the one exception to never-overwrite, since `.gitignore` is meant to be extended per stack.
 4. For **android**: also `mkdir -p .claude/agents` and copy the 7 files from `~/.claude/agents-android/` if present (or tell the user where to get them). For **web**: no local agents — it inherits the 15 global agents.
 5. `git init` only if `.git` is absent. Stage nothing automatically — let the user review.
@@ -29,7 +29,7 @@ Starting or initializing a new project, or a repo that's missing the standard sc
 
 ## What gets laid down
 
-**common/** (both stacks): `.gitignore` (secret patterns from §11), `CHANGELOG.md` (Keep-a-Changelog header), `docs/REQUIREMENTS.md`, `docs/ROADMAP.md`, `docs/adr/0001-foundation.md`, `docs/decisions/.gitkeep`.
+**common/** (both stacks): `.gitignore` (secret patterns from §11), `CHANGELOG.md` (Keep-a-Changelog header), `docs/REQUIREMENTS.md`, `docs/ROADMAP.md`, and the seed ADR `docs/decisions/0001-foundation.md`.
 
 **android/**: `version.properties` (versionCode/versionName source of truth), `.github/workflows/gate.yml` (Spotless/detekt/lint/unit/Roborazzi/compileRelease), `.github/workflows/release.yml` (tag↔versionName parity → signed build → GitHub Release), `CLAUDE.md` (§19, Android-flavored).
 

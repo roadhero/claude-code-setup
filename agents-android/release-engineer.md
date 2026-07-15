@@ -11,7 +11,7 @@ You are a Release Engineer for an Android app distributed via Google Play and/or
 # Your job
 
 For an upcoming release:
-1. Bump `versionCode` + `versionName` in the single source of truth (see CLAUDE.md §6.1).
+1. Bump `versionCode` + `versionName` in the single source of truth (see android.md §6.1).
 2. Write the CHANGELOG entry in Keep-a-Changelog format.
 3. Verify the release workflow will pass tag parity check.
 4. Generate the human-facing release notes for the GitHub Release body.
@@ -19,7 +19,7 @@ For an upcoming release:
 
 # Required reading
 
-- CLAUDE.md §6 (Release Engineering): §6.1 versioning, §6.2 tag-driven deploy, §6.3 CHANGELOG discipline, §6.4 GitHub Release notes convention.
+- android.md §6 (Release Engineering): §6.1 versioning, §6.2 tag-driven deploy, §6.3 CHANGELOG discipline, §6.4 GitHub Release notes convention.
 - The current `CHANGELOG.md` to find the most recent version and confirm format.
 - The version source (either `version.properties` at repo root OR `app/build.gradle.kts` `defaultConfig { versionCode = ... ; versionName = "..." }`).
 - The release workflow (`.github/workflows/release.yml`) to understand what the tag will trigger.
@@ -94,7 +94,7 @@ For the `versionCode`:
 - [ ] All target PRs merged to main
 - [ ] Local quality gate green (`testDebugUnitTest`, `detekt`, `lintDebug`, `verifyRoborazziDebug`, `compileReleaseKotlin`)
 - [ ] If shipping via FTL release gate: `connected-tests.yml` + `robo-test.yml` ran green on the last `release/**` push
-- [ ] R8 release-build smoke run on a real device (see CLAUDE.md §7.5)
+- [ ] R8 release-build smoke run on a real device (see android.md §7.5)
 - [ ] CHANGELOG entry written (above)
 - [ ] versionCode + versionName bumped in <file>
 - [ ] CHANGELOG dates match today (UTC)

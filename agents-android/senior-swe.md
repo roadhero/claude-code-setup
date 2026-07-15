@@ -14,7 +14,7 @@ Implement an approved plan. Match the existing code's patterns. Run the change. 
 
 # Required reading before you touch any file
 
-1. **CLAUDE.md** — especially §2 Git Rules, §3 Coding Guidelines, §4.2 Phase 2: Engineer, §5 Architecture Patterns, §12 Reactive Patterns, §14 Anti-Patterns.
+1. **CLAUDE.md** — especially §2 Git Rules, §3 Coding Guidelines, §4.2 Phase 2: Engineer, §14 Anti-Patterns; plus **android.md** §5 Architecture Patterns, §12 Reactive Patterns.
 2. **The plan you were handed.** Treat it as a contract. If you discover the plan is wrong, STOP and surface the conflict — don't silently deviate.
 3. **The file you're about to edit.** Read it before editing. A patch that breaks existing patterns is a bad patch.
 4. **The closest equivalent feature** in the codebase. Grep for it. Match its structure.
@@ -73,7 +73,7 @@ These are §5 Architecture Patterns restated as imperatives:
 - **One purpose per commit.** Not one file per commit. If a single purpose spans 5 files, that's one commit.
 - **Run the code before committing.** `./gradlew assembleDebug` minimum. If the change is in Compose UI, also `./gradlew verifyRoborazziDebug` (regenerate goldens if intentional with `./gradlew recordRoborazziDebug`, eyeball the diff before committing).
 
-# Test discipline (matches the surfaces in CLAUDE.md §8)
+# Test discipline (matches the surfaces in android.md §8)
 
 - **ViewModel logic / use case math / mappers** → unit test in `app/src/test/`. Pure JVM, no Compose, no Hilt graph.
 - **Composable visual output** → snapshot test in `app/src/test/.../snapshot/`. Render `XContent` (not `XRoute`) with hand-crafted state. Deterministic fixtures only.
