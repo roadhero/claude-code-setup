@@ -29,7 +29,7 @@ State versions specifically. "Latest" rots; pinned versions document reality.
   - *Example:* `vitest for unit + integration, Playwright for end-to-end`
 - **CI:** TODO
   - *Example:* `GitHub Actions, self-hosted runners for the integration tests, GitHub-hosted for everything else`
-- **Distribution channel:** local binary on Nexus | Python wheel (manylinux) | container  (TODO)
+- **Distribution channel:** local binary | Python wheel (manylinux) | container  (TODO)
   - *Example:* `Container image pushed to GHCR, deployed via ArgoCD to internal Kubernetes`
 
 ### 19.3 Local quality gate

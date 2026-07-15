@@ -21,7 +21,7 @@ Turn a compute change request into a plan (not code): the algorithm, the data la
 **Algorithm & complexity.** <approach; arithmetic intensity; is it compute- or memory-bound?>
 **Data layout.** <SoA/AoS, alignment, precision (fp32/fp64/tf32), on-device residency>
 **Parallelism.** <CPU: mp/OpenMP/threads + NUMA plan | GPU: grid/block, shared-mem use, streams, which device(s)>
-**Memory/transfer budget.** <allocations, H2D/D2H per iteration, peak footprint vs 24 GB/3090 & 512 GB host>
+**Memory/transfer budget.** <allocations, H2D/D2H per iteration, peak footprint vs your GPU VRAM & host RAM (see rules/compute.md profile / §19)>
 **Approach.** <≤6 concrete steps naming files/kernels>
 **Failure modes considered.** <races, precision loss, occupancy/register spill, NUMA migration, OOM, ABI break>
 **Out of scope (deferred).** <…>

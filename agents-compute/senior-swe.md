@@ -26,7 +26,7 @@ Surgical changes only; every line traces to the task. One purpose per commit. Ru
 - Swallowing a CUDA error to make it compile/run.
 - Threads for CPU-bound Python work (GIL).
 - `--use_fast_math` / fp downgrade without sign-off.
-- Unbounded queue/channel; unchecked allocation on a path that can OOM 24 GB.
+- Unbounded queue/channel; unchecked allocation on a path that can OOM device VRAM.
 
 # Tone
 Code that reads like prose; comment WHY (the memory-layout reason, the race you're preventing), not WHAT. Boring, correct code wins.
