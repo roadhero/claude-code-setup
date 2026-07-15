@@ -78,6 +78,8 @@ Four no-code extensions cover almost everything before you'd fork the binary:
 | **Hooks**       | Shell scripts                                     | `.claude/hooks/*.sh`                | Pre/post-tool-call validation, audit logging, custom permission gates |
 | **MCP servers** | Protocol-based (any language)                     | Configured in user/project settings | Tool integrations (issue tracker, error tracking service, package registry, custom databases) |
 
+If a use case fits none of these, report the gap upstream rather than working around it — forking the binary trades extensibility for an ownership burden, and every Claude Code release becomes a merge conflict.
+
 ## Rule pack loading model
 The four packs install to `~/.claude/rules/` together and each declares a `paths:` glob in its YAML frontmatter. Claude Code loads a pack the first time it reads a file whose path matches (`*.kt`/`*.gradle*` → android.md, `*.swift` → ios.md, `*.ts`/`*.py`/`*.go` → web.md, `*.cpp`/`*.cu`/`CMakeLists.txt` → compute.md). Path-triggered, not stack-detection: nothing scans the repo up front, and a pack that never path-matches in a session never enters context (that is the context saving). It is also lazy — during pure planning, before any source file is read, no pack is loaded; it lands when the architect reads existing source. Verify what loaded with `/memory`. Python is owned solely by web.md; compute.md triggers only on native/CUDA/build files, so a `.py` file never loads two packs. Single-stack eager-load: drop one pack into a repo's own `.claude/rules/` with its `paths:` frontmatter removed — a rules file with no `paths:` loads unconditionally at launch.
 
