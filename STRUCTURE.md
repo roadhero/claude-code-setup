@@ -14,7 +14,8 @@
 ├── hooks/
 │   ├── guard-commit.sh       # PreToolUse(Bash): block AI attribution, secrets, force-push, non-human committer
 │   └── format.sh             # PostToolUse(Edit|Write): auto-format by extension, all stacks
-└── skills/new-repo/          # scaffolder
+├── skills/new-repo/          # scaffolder
+└── docs/                     # on-demand reference (roster tables, §4 review checklist, error-recovery table, PR template, scaling) — the spine points here
 
 Per-repo overrides (drop into <repo>/.claude/agents/ — override the 15 globals by canonical name):
    Android repo → agents-android/   (7)
@@ -39,6 +40,7 @@ cp agents/*.md          ~/.claude/agents/
 cp -R agents-android agents-ios agents-compute ~/.claude/   # per-stack packs (the new-repo skill + per-repo overrides read these)
 cp hooks/*.sh           ~/.claude/hooks/ && chmod +x ~/.claude/hooks/*.sh
 cp -R skills/new-repo    ~/.claude/skills/
+mkdir -p ~/.claude/docs && cp -R docs/* ~/.claude/docs/   # on-demand reference the spine's ~/.claude/docs/* pointers resolve to
 
 # per repo:
 cp templates/CLAUDE.project.md /path/to/repo/CLAUDE.md   # then fill §19  (or templates/CLAUDE.project.compute.md for C++/CUDA)
@@ -64,6 +66,17 @@ Both reference the **same** `guard-commit.sh` + `format.sh`; they differ only in
 
 ## Hook paths
 Both settings files reference the hooks via `$HOME/.claude/hooks/...`, which the shell expands to your home directory, so they work for any user without editing. Verify with `/hooks` inside Claude Code. Prerequisites: `jq` is **required by `guard-commit.sh`** — without it, git commit/push are blocked (fail-closed); install it first with `brew install jq` (macOS) / `sudo apt-get install jq`. The format hook additionally uses `prettier`/`ktlint`/`swift-format`/`ruff`/`clang-format` per stack, each a silent no-op if absent.
+
+## Extension points (spine §18)
+
+Four no-code extensions cover almost everything before you'd fork the binary:
+
+| Extension       | Format                                            | Location                            | Use case                                                     |
+| --------------- | ------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------ |
+| **Subagents**   | Markdown with YAML frontmatter                    | `.claude/agents/*.md`               | New personas (e.g. `security-reviewer`, `performance-engineer`, `db-migration-specialist`) |
+| **Skills**      | Markdown with YAML frontmatter + supporting files | `.claude/skills/<name>/SKILL.md`    | Reusable workflows (e.g. `release-prep`, `add-feature-flag`, `db-migration`, `dependency-upgrade`) |
+| **Hooks**       | Shell scripts                                     | `.claude/hooks/*.sh`                | Pre/post-tool-call validation, audit logging, custom permission gates |
+| **MCP servers** | Protocol-based (any language)                     | Configured in user/project settings | Tool integrations (issue tracker, error tracking service, package registry, custom databases) |
 
 ## Rule pack loading model
 The four packs install to `~/.claude/rules/` together and each declares a `paths:` glob in its YAML frontmatter. Claude Code loads a pack the first time it reads a file whose path matches (`*.kt`/`*.gradle*` → android.md, `*.swift` → ios.md, `*.ts`/`*.py`/`*.go` → web.md, `*.cpp`/`*.cu`/`CMakeLists.txt` → compute.md). Path-triggered, not stack-detection: nothing scans the repo up front, and a pack that never path-matches in a session never enters context (that is the context saving). It is also lazy — during pure planning, before any source file is read, no pack is loaded; it lands when the architect reads existing source. Verify what loaded with `/memory`. Python is owned solely by web.md; compute.md triggers only on native/CUDA/build files, so a `.py` file never loads two packs. Single-stack eager-load: drop one pack into a repo's own `.claude/rules/` with its `paths:` frontmatter removed — a rules file with no `paths:` loads unconditionally at launch.

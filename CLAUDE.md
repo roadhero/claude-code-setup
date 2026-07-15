@@ -2,49 +2,25 @@
 
 > Universal engineering spine — applies to every project regardless of stack. Platform-specific rules (the architecture / release / quality-gate / testing / concurrency / compliance sections — §5–8, §12, §13) live in `~/.claude/rules/{web,android,ios,compute}.md`; each pack declares a `paths:` glob in its frontmatter, so Claude Code loads it on demand the moment it reads a file that pack matches (`*.kt`/`*.gradle*` → android, `*.swift` → ios, `*.ts`/`*.py`/`*.go`/`*.rs` → web, `*.cpp`/`*.cu`/`CMakeLists.txt` → compute). Path-triggered, not stack-detection: nothing scans the repo up front, and a pack whose files you never open never enters context.
 > **Don't water down the workflow rules.** Every one exists because a real bug shipped without it.
+> **Progressive detail.** This spine is the always-loaded core — guardrails and per-session rules. Longer reference material (full roster tables, the review checklist, the error-recovery table, the PR template, scaling notes) lives under `~/.claude/docs/*.md` and loads on demand; the section stubs below point to it. Keeping the spine lean is deliberate: a bloated always-on file gets ignored.
 > **Cache boundary discipline.** Everything above the `===== CACHE BOUNDARY =====` marker near the end is static across releases and gets prompt-cached. Only §19 Project Context (below the boundary) is per-project; edits there don't invalidate the cached spine.
 
 ------
 
 ## 1. Subagent Roster
 
-Agents live under `.claude/agents/` (project) or `~/.claude/agents/` (user, all projects). Invoke them by name, or let them auto-dispatch on their description. They're scoped — each loads only the context it needs, so they're faster and less drift-prone than one mega-agent. In an Android repo, the project-scoped Android-flavored agents override the generic ones of the same name.
+Agents live under `.claude/agents/` (project) or `~/.claude/agents/` (user, all projects). Invoke them by name, or let them auto-dispatch on their description. They're scoped — each loads only the context it needs, so they're faster and less drift-prone than one mega-agent. A repo's `.claude/agents/<name>.md` overrides the global agent of the same `name:`.
 
-**Core four-hat chain (§4 execution loop):**
+- **Four-hat chain (§4):** `architect` (plan, read-only) → `senior-swe` (implement, mutating) → `code-reviewer` (adversarial review, read-only) → `qa` (verify, read-only). Plus `release-engineer` (release prep) and `docs-reconciler` (drift detection).
+- **Specialists (as the change warrants):** `security-reviewer`, `performance-engineer`, `db-migration-specialist`, `debugger`, `tech-writer`, `product-designer`, `devops-sre`.
+- **Delivery layer (§4B):** `technical-program-manager` (scope / sequence / risk), `scrum-master` (cadence / flow). Neither writes code.
+- **Read-only vs mutating** is the `tools:` allowlist: read-only agents omit `Edit`/`Write` and are parallel-safe; mutating agents hold them and must run serially per branch. `concurrency:` is NOT a supported frontmatter field — don't add it.
 
-| Agent              | Phase / Purpose              | Concurrency | Invoke when                                                  |
-| ------------------ | ---------------------------- | ----------- | ------------------------------------------------------------ |
-| `architect`        | Phase 1 planner              | Read-only   | Any non-trivial change. Produces the scoped plan before code is written. |
-| `senior-swe`       | Phase 2 implementer          | Mutating    | After plan approval. Writes code matching existing patterns. |
-| `code-reviewer`    | Phase 3 adversarial reviewer | Read-only   | Before pushing. Walks the review checklist against the diff. |
-| `qa`               | Phase 4 verifier             | Read-only   | After review. Generates the test plan and runs the local gate. |
-| `release-engineer` | Release prep                 | Mutating    | Bumping versions, writing CHANGELOG, tagging.                |
-| `docs-reconciler`  | Drift detection              | Read-only   | Every 3–5 merged PRs. Surfaces drift between specs ↔ code ↔ CHANGELOG ↔ README ↔ open issues. |
+Full per-agent tables, invoke-when triggers, and the concurrency rationale: `~/.claude/docs/agents.md`. Per-stack override packs (`agents-android/` 7, `agents-ios/` 7, `agents-compute/` 13): see `STRUCTURE.md`.
 
-**Specialists & contributors (pulled in around the four-hat chain — design upstream, ops downstream, the rest as the change warrants):**
+**Trust-but-verify.** Subagents return narrative summaries that can hallucinate file paths, line numbers, or recent activity. Confirm specific claims with `Read` / `Grep` before acting — treat the report as a hypothesis, not ground truth.
 
-| Agent                      | Purpose                          | Concurrency | Invoke when                                          |
-| -------------------------- | -------------------------------- | ----------- | ---------------------------------------------------- |
-| `security-reviewer`        | Security + supply-chain audit    | Read-only   | Change touches auth, crypto, input, secrets, deps; pre-release. |
-| `performance-engineer`     | Performance analysis             | Read-only   | Hot path, query, startup, memory; latency/jank regressions. |
-| `db-migration-specialist`  | Safe schema migrations           | Mutating    | Any column/table/entity/data-shape change.           |
-| `debugger`                 | Reproduce → root-cause           | Read-only   | A failing test/crash/regression whose cause isn't obvious. |
-| `tech-writer`              | Authors docs                     | Mutating    | Writing/updating README, API docs, ADRs, guides.     |
-| `product-designer`         | UX/IA/interaction/a11y spec + critique | Mutating | UI work: defines the design intent (Claude Design renders visuals); reviews the built UI. |
-| `devops-sre`               | CI/CD, IaC, deploy, observability, on-call | Mutating | Pipelines, infra, deploy strategy + rollback, SLO/alerts, incident readiness. |
-
-**Delivery layer (§4B — wraps the execution loop):**
-
-| Agent                        | Purpose                              | Concurrency | Invoke when                                      |
-| ---------------------------- | ------------------------------------ | ----------- | ------------------------------------------------ |
-| `technical-program-manager`  | Scope, sequence, risk, stakeholders  | Mutating    | Planning an initiative, prioritizing, status/RAID, change control. |
-| `scrum-master`               | Cadence, flow, impediments, health   | Mutating    | Sprint planning/daily/retro, flow health, removing blockers. |
-
-**Concurrency classification.** Mutating agents hold `Edit`/`Write` and must run serially against the same branch; read-only agents omit `Edit`/`Write` and are safe to invoke in parallel. (Read-only agents may still hold `Bash` for inspection, so the boundary is a documented convention backed by the `tools:` list, not a hard sandbox — the Concurrency column in the roster above is the authoritative index.) Claude Code orchestrates serially today; an orchestrator that parallelized the read-only subset could read each agent's `tools:` allowlist to derive the safe set — typically a 2–5× speedup on multi-step turns.
-
-**Trust-but-verify rule.** Subagents return narrative summaries that can hallucinate file paths, line numbers, or recent activity. Always verify a subagent's specific claims (file content, line refs, issue numbers) before acting on them. Treat the agent's report as a hypothesis to confirm with `Read` / `Grep`, not as ground truth.
-
-**Subagents have no memory across invocations.** A subagent doesn't know what a previous invocation of itself decided. Pass forward decisions explicitly in the prompt or via a written artifact (a draft PR description, a comment in the issue, an entry in `docs/decisions/`).
+**Subagents have no memory across invocations.** Pass decisions forward explicitly in the prompt or a written artifact (draft PR description, issue comment, `docs/decisions/` entry).
 
 ------
 
@@ -67,353 +43,109 @@ Agents live under `.claude/agents/` (project) or `~/.claude/agents/` (user, all 
 
 ## 3. Coding Guidelines
 
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+**Tradeoff:** bias toward caution over speed. For trivial tasks, use judgment. Worked examples: `~/.claude/docs/coding-guidelines.md`.
 
-### 3.1 Think Before Coding
-
-Don't assume. Don't hide confusion. Surface tradeoffs.
-
-- State assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them — don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
-
-### 3.2 Simplicity First
-
-Minimum code that solves the problem. Nothing speculative.
-
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
-
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
-
-### 3.3 Surgical Changes
-
-Touch only what you must. Clean up only your own mess.
-
-When editing existing code:
-
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it — don't delete it.
-
-When your changes create orphans:
-
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
-
-The test: every changed line should trace directly to the user's request.
-
-### 3.4 Goal-Driven Execution
-
-Define success criteria. Loop until verified.
-
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-- "Optimize Y" → "Benchmark before and after; show the delta"
-
-For multi-step tasks, state a brief plan:
-
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
-```
+- **3.1 Think before coding.** State assumptions explicitly; if multiple interpretations exist, present them — don't pick silently; if a simpler approach exists, say so and push back when warranted; if something is unclear, stop, name it, and ask.
+- **3.2 Simplicity first.** Minimum code that solves the problem. No features beyond what was asked, no abstractions for single-use code, no unrequested "flexibility", no error handling for impossible scenarios. 200 lines that could be 50 → rewrite. "Would a senior engineer call this overcomplicated?" If yes, simplify.
+- **3.3 Surgical changes.** Touch only what you must. Don't improve or refactor adjacent code; match existing style even if you'd do it differently; remove only the orphans YOUR change created; mention — don't delete — pre-existing dead code. Every changed line traces directly to the request.
+- **3.4 Goal-driven execution.** Define success criteria, loop until verified ("fix the bug" → write a failing test, then make it pass; "optimize Y" → benchmark before/after and show the delta). State a brief numbered plan for multi-step tasks.
 
 ------
 
 ## 4. Workflow: Four Hats
 
-Every non-trivial change goes through four phases, in order. You wear all four hats sequentially — or delegate each to its scoped subagent. **Do not skip phases. Do not combine them.** Each phase produces an explicit output before the next begins.
+Every non-trivial change goes through four phases, in order — wear all four hats yourself or delegate each to its scoped subagent. **Do not skip phases. Do not combine them.** Each produces an explicit output before the next begins. Full detail — the Phase 3 review checklist and the §4.7 error-recovery-by-class table — in `~/.claude/docs/workflow.md`.
 
-### 4.1 Phase 1: Architect
+1. **Architect** (read-only): minimal change? existing patterns to match? failure modes (auth, network, concurrency, data loss, partial failure, retry storms)? scope boundaries? → a 3–8 line plan, user-approved. Run this in **plan mode** so the read-only constraint is enforced by the harness, not just intended.
+2. **Engineer:** implement the plan, nothing more. One *purpose* per commit. Run the code; if it doesn't start, fix it before moving on.
+3. **Code Reviewer** (read-only, adversarial): walk the review checklist against the diff as if you didn't write it. Zero-open-comments rule — every issue fixed or explicitly justified before proceeding.
+4. **QA:** run the local quality gate (platform rule §7), the happy path, at least one realistic error case, and a regression check. If a test fails, diagnose the failure class (§4.7) before reacting. Don't push broken code.
 
-Delegate to `architect` (or wear the hat yourself). Before any code, answer:
-
-- What is the minimal change that solves this?
-- What existing patterns does this codebase use? Match them.
-- What are the failure modes? (auth, network, concurrency, data loss, partial failure, error propagation, retry storms, cascading timeouts)
-- What should this NOT do? (scope boundaries)
-
-**Output:** a brief plan (3–8 lines) with scope, approach, and what's explicitly out of scope. Get user approval before proceeding.
-
-### 4.2 Phase 2: Engineer
-
-Delegate to `senior-swe`. Implement the plan. Nothing more, nothing less.
-
-- Follow the plan from Phase 1. If you discover the plan is wrong, stop and say so — don't silently deviate.
-- One logical change per commit. Not one file per commit — one *purpose* per commit.
-- Run the code. If it doesn't start, fix it before moving on.
-
-**Output:** working code, committed to a branch, with a clear commit message referencing the issue.
-
-### 4.3 Phase 3: Code Reviewer
-
-Delegate to `code-reviewer`. Review the diff as if you didn't write it. Be adversarial.
-
-Check every changed line against this list:
-
-- [ ] Does this line trace to the task? If not, revert it.
-- [ ] Any hardcoded values that should be config/env/feature-flag/constant?
-- [ ] Any missing error handling for *realistic* failure cases? (not hypothetical ones)
-- [ ] Any security issues? (unsanitized input, leaked secrets, injection — SQL/command/template, SSRF, deserialization, broken auth, broken access control)
-- [ ] Does this match the existing code style? (naming, patterns, indentation, formatter rules)
-- [ ] Any leftover debug code, `console.log` / `println` / `dbg!`, TODOs without ticket reference, commented-out blocks?
-- [ ] State management: single source of truth maintained? No mutation of inputs?
-- [ ] Boundaries respected: no leaking persistence types into UI, no leaking UI types into business logic, no global mutable state added?
-- [ ] Backwards compatibility: does this break any public API? Schema migration safe to roll back? Feature-flagged if risky?
-- [ ] Concurrency: any new shared mutable state? Cancellation propagated? Timeouts on external calls?
-- [ ] Observability: new error paths logged with structured context? New metrics named consistently with existing ones?
-- [ ] Tests: every new logic branch covered? Test names describe behavior, not implementation?
-- [ ] CHANGELOG entry added for any user-visible change?
-
-**Zero open comments rule:** every issue found must be fixed or explicitly justified before proceeding. No "we can fix this later." No parking.
-
-**Output:** a clean diff with every review item resolved.
-
-### 4.4 Phase 4: QA
-
-Delegate to `qa`. Verify the change works end-to-end.
-
-- Run the full local quality gate (see §7).
-- Test the happy path manually or with a script.
-- Test at least one realistic error case (bad input, missing config, network down, permission denied, dependency unavailable, disk full, etc.).
-- Test that existing functionality still works (no regressions).
-- If the change has a UI surface, verify it renders correctly. If it has an API surface, verify the contract.
-
-If any test fails, diagnose the failure class before reacting (see §4.7). Do not push broken code.
-
-**Output:** a summary of what was tested and the results.
-
-### 4.5 When to skip phases
-
-- Typo fix or config-only change: skip Phase 1 and Phase 4.
-- `type:chore`, `type:docs`, `type:qa`: can skip Phases 1, 3, and 4 when the change is text-only, config-only, or test-config-only. Use judgement; if the change has real surface area (e.g. a new test infrastructure module), keep all four phases.
-- Everything else: all four phases, every time.
-
-### 4.6 Solo mode (no subagents)
-
-When operating without subagent infrastructure, wear all four hats yourself, in order. Don't combine Phase 1 and Phase 2 into "I'll plan while coding" — the discipline of writing the plan down first is what catches the scope creep.
-
-### 4.7 Error recovery by class
-
-When something fails, the recovery path depends on the failure type. Don't reflexively "go back to Phase 2" — diagnose first. Mis-classifying a flake as a real bug wastes a Phase 2 cycle; mis-classifying a real bug as a flake ships the bug.
-
-| Failure                                                      | Stays in current phase? | Recovery                                                     |
-| ------------------------------------------------------------ | ----------------------- | ------------------------------------------------------------ |
-| Rate limit (API 429)                                         | Yes                     | Exponential backoff. Don't restart the phase.                |
-| Context overflow                                             | Yes                     | Invoke compaction or split the task. Don't restart.          |
-| Auth failure                                                 | No                      | Stop, surface to user. Don't auto-retry.                     |
-| Network error (transient)                                    | Yes                     | One retry with backoff, then surface.                        |
-| Test failure (real bug)                                      | No                      | Back to Phase 2 (engineer).                                  |
-| Test failure (flake)                                         | Yes                     | One retry of the test; if still red, treat as real bug.      |
-| External service blip (CI infrastructure, package registry, container registry) | Yes                     | One retry; if still red, escalate to status page.            |
-| Lint / type-check finding                                    | No                      | Back to Phase 2 — but narrow fix, not "fix all lint findings." |
-| Formatter diff                                               | Yes                     | Apply formatter, recommit — stay in current phase.           |
-| Visual snapshot / golden diff (intentional)                  | Yes                     | Regenerate goldens, eyeball diff, recommit — stay in current phase. |
-| Visual snapshot / golden diff (unintentional)                | No                      | Back to Phase 2 — real regression.                           |
-| Production build fails when dev build passes (build-variant-specific) | No                      | Back to Phase 2 — fix the import/dep that's debug-only.      |
-| Subagent timeout                                             | Yes                     | Smaller scope (split the task), re-invoke. Don't pad the prompt. |
-| Subagent hallucination caught in verify step                 | No                      | Re-invoke with explicit correction in the prompt. Don't trust narrative. |
-
-The principle: a recovery strategy that retries indiscriminately accumulates state corruption; a strategy that always restarts the whole phase wastes cycles on transient noise. Each error class gets its own path inside the state machine, not an outer try-catch.
+**§4.5 Skip rules.** Typo / config-only: skip Phase 1 & 4. `type:chore|docs|qa` that's text-/config-/test-config-only: skip Phases 1, 3, 4 (use judgement — keep all four if there's real surface area). Everything else: all four, every time.
+**§4.6 Solo mode.** No subagents → wear all four hats yourself, in order. Don't fuse Phase 1 into Phase 2; writing the plan down first is what catches the scope creep.
 
 ------
 
-## 4B. Delivery Workflow (the layer that wraps the four hats)
+## 4B. Delivery Workflow
 
-§4's four hats are the *execution* loop for one change. The *delivery* layer decides which changes, in what order, at what risk, and keeps the team flowing. Two roles own it; neither writes code.
-
-- **`technical-program-manager`** — owns the *what / why / when / risk*. Turns a goal into a scoped, sequenced, dependency- and risk-managed plan; prioritizes the backlog (RICE/WSJF/MoSCoW); runs change control; produces stakeholder/status comms. Frames product options and recommends — does not decide unilaterally.
-- **`scrum-master`** — owns the *flow*. Runs the cadence (planning, daily, refinement, review, retro), enforces Definition of Ready/Done, tracks flow metrics, drives impediments out, guards team health. Orders work *within* a sprint; does not set priority.
-
-**The loop, end to end:**
-1. `technical-program-manager` — frame outcome + scope (in/out) + sequence + dependencies + RAID. Output: a delivery plan.
-2. (UI work) `product-designer` — spec the experience, IA, states, and accessibility; **Claude Design** produces the visuals; hand the interaction contract to build.
-3. `scrum-master` — capacity-plan the next increment; admit only items that meet Definition of Ready.
-4. Per item, the §4 four-hat execution loop runs: `architect` → `senior-swe` → `code-reviewer` (+ `security-reviewer` / `performance-engineer` / `db-migration-specialist` as the change warrants) → `qa`.
-5. `release-engineer` — preps the release per §6 (platform rule) and §9 (stacked PR); `devops-sre` runs the pipeline, deploys with a rollback path, and confirms the observability signals are green.
-6. `docs-reconciler` (§10) + `scrum-master` — reconcile docs/board reality and report sprint/flow health; `tech-writer` updates user-facing docs; `product-designer` reviews the shipped UI against the spec.
-7. `technical-program-manager` — update status (RAG), stakeholders, and the RAID register; feed learnings into the next plan. On a production incident: `devops-sre` + `debugger` lead, postmortem feeds back here.
-
-**Boundary:** value & priority & risk = `technical-program-manager`; process & flow & team health = `scrum-master`; execution = the §4 agents. A priority dispute routes to the TPM/owner; a process or capacity dispute routes to the scrum-master. When the pod is one or two people, both delivery roles collapse into solo mode (§4.6) — the human wears the hats — but the artifacts (plan, RAID, DoD) still apply.
+The layer that wraps the four hats. `technical-program-manager` owns what / why / when / risk (scope, sequence, dependencies, RAID, prioritization, change control); `scrum-master` owns flow (cadence, Definition of Ready/Done, impediments, team health). Value & priority = TPM; process & flow = scrum-master; execution = the §4 agents. Neither writes code. Full end-to-end loop: `~/.claude/docs/workflow.md`.
 
 ------
 
 ## 9. Stacked PR Workflow
 
-When shipping multiple related PRs in a session:
-
-1. **Local feature branch** off the protected branch, work the ticket.
-2. **Commit** locally with the version bump + CHANGELOG entry.
-3. **Don't push the version-bump + CHANGELOG combo until the prior PR has merged** — otherwise both PRs touch the same version lines and the second one hits a rebase conflict.
-4. When the prior PR merges:
-   - `git checkout <protected> && git pull --ff-only`
-   - `git checkout <next-branch> && git rebase <protected>` (Git skips cherry-picks already in the protected branch)
-   - Resolve any remaining conflicts (usually CHANGELOG section ordering + the version bump).
-   - Push + open the next PR.
-
-**Don't push and rely on platform conflict-resolution.** The squash-merge SHAs don't match local commits; rebasing locally is cleaner.
-
-**Stash-and-checkout pitfall.** If you `git stash` mid-edit and `git checkout main`, the stash includes only the modified-and-tracked files. Untracked new files ARE included by default in modern git, but verify with `git stash show -u`. If you switch branches and lose work-in-progress, check `git fsck --lost-found` before panicking.
+Shipping multiple related PRs in a session: local feature branch per ticket; **don't push the version-bump + CHANGELOG combo until the prior PR merges** (else both touch the same version lines and the second hits a rebase conflict); when it merges, `git checkout <protected> && git pull --ff-only`, then `git rebase <protected>` the next branch **locally** rather than relying on platform conflict-resolution (squash-merge SHAs don't match local commits). Full rebase discipline + the stash-and-checkout pitfall: `~/.claude/docs/git-workflows.md`.
 
 ------
 
 ## 10. Reconciliation Cadence
 
-Every 3–5 merged PRs, run a reconciliation pass before queueing the next feature. Delegate to `docs-reconciler` (it does exactly this, and applies a cheap-first tier discipline — single greps before full re-reads).
-
-1. **Spec ↔ code:** scan spec / PRD / RFC sections touched by recent work; flag drift (a feature shipped that the spec still describes as "planned"; a feature the spec describes that's actually deferred under a follow-up issue).
-2. **Roadmap ↔ shipped versions:** annotate phase rows with "(shipped vX.Y.Z)" or "(partial: shipped X, deferred Y)" — explicit partial-ship is better than silent drift.
-3. **Open issues ↔ reality:** close issues whose deliverable shipped; comment on owner-bound issues with current state so the next session knows what's pending.
-4. **CHANGELOG ↔ tags:** verify the section heads match the git tag history; the release workflow extracts these verbatim, so drift here ships an empty release body.
-5. **README ↔ code:** does the elevator pitch still match? Are the badges current (build status, package version, license)? Are quickstart commands still correct?
-
-Default fallback work when no ticket is queued: **reconciliation pass + ticket hygiene**, not speculative refactors. Don't invent work to fill time.
+Every 3–5 merged PRs, run a reconciliation pass before queueing the next feature — delegate to `docs-reconciler`. It checks spec ↔ code, roadmap ↔ shipped versions, open issues ↔ reality, CHANGELOG ↔ tags, README ↔ code. Default fallback when no ticket is queued: **reconciliation + ticket hygiene, not speculative refactors.** Full five-step pass: `~/.claude/docs/reconciliation.md`.
 
 ------
 
 ## 11. Secrets & Credentials
 
 - Never commit secrets, tokens, API keys, certificates, private keys, signing keys.
-- All secrets live in `.env` (gitignored) for local dev, and in CI secret stores / cloud KMS / vault for CI + production.
+- Secrets live in `.env` (gitignored) for local dev, and CI secret stores / cloud KMS / vault for CI + production.
 - Add `.env`, `.env.*`, `*.pem`, `*.key`, `*.keystore`, `*.jks`, `*.p12`, `credentials.json`, `service-account*.json`, etc. to `.gitignore` BEFORE the first commit.
 - If a secret leaks into a commit (even a deleted line in history): **rotate first, scrub history second.** A removed-but-public secret is still a leaked secret.
 - When pasting logs, diffs, or config into chats or issues, redact: `Authorization: Bearer ***REDACTED***`, `password=***`, `apikey=sk-***REDACTED***`.
 - Use a secret scanner (gitleaks, trufflehog, GitHub secret scanning) in CI. Fail the build on detected secrets.
 
-### 11.1 Secrets inventory
-
-Document every secret the project needs. Suggested baseline (delete what doesn't apply, add domain-specific ones):
-
-| Secret                                      | Used by                     | Purpose                                          | Rotation cadence                        |
-| ------------------------------------------- | --------------------------- | ------------------------------------------------ | --------------------------------------- |
-| `<artifact-registry>_TOKEN`                 | release workflow            | Publish package to npm/PyPI/crates.io/Maven/etc. | Every 90 days                           |
-| `<container-registry>_TOKEN`                | release workflow            | Push container images                            | Every 90 days                           |
-| `DATABASE_URL`                              | runtime + integration tests | Connect to primary database                      | Per-environment, rotated on team change |
-| `OAUTH_CLIENT_SECRET` (per provider)        | runtime                     | OAuth flows                                      | Every 90 days                           |
-| `WEBHOOK_SIGNING_SECRET`                    | runtime                     | Verify inbound webhooks                          | On team change                          |
-| `SLACK_WEBHOOK_URL` / `DISCORD_WEBHOOK_URL` | release workflow            | Release notifications                            | On team change                          |
-| `SENTRY_DSN` (or equivalent error tracker)  | runtime                     | Crash reporting                                  | Rarely (rotation breaks attribution)    |
-| Signing keys (binary, package, container)   | release workflow            | Sign published artifacts                         | Never (rotation breaks trust chain)     |
-
-Maintain this table in `docs/SECRETS.md`. Audit CI logs for any secret name that's been removed but is still referenced.
+Per-project secrets inventory template (§11.1): `~/.claude/docs/SECRETS.md`.
 
 ------
 
 ## 14. Anti-Patterns (learned-the-hard-way)
 
-- **Don't reach for a new dependency** when stdlib + 20 lines solve it. Every dep adds attack surface, transitive risk, license review, supply-chain risk, and resolution time. The bar to add a dep should be roughly "what we'd write would be substantially worse than the lib."
-- **Don't silence the linter / type-checker / test** to make CI pass. The signal is doing its job. Fix the underlying problem or document the deliberate exception with a comment naming the issue link.
-- **Don't `--no-verify` to skip a failing pre-commit hook.** Investigate the hook failure; the hook usually catches real problems.
-- **Don't `--amend` after a failed pre-commit hook.** The hook failure means the commit didn't happen — `--amend` would modify the PREVIOUS commit, destroying that work. Fix the issue, re-stage, create a NEW commit.
-- **Don't trust subagent "I remember from earlier" claims.** Subagents have no memory across invocations. Confirm specific file paths, line numbers, or commit SHAs with `Read` / `Grep` / `Bash` before acting on them.
+- **Don't reach for a new dependency** when stdlib + 20 lines solve it. Every dep adds attack surface, transitive risk, license review, supply-chain risk, and resolution time. The bar: "what we'd write would be substantially worse than the lib."
+- **Don't silence the linter / type-checker / test** to make CI pass. Fix the underlying problem or document the deliberate exception with a comment naming the issue link.
+- **Don't `--no-verify` to skip a failing pre-commit hook.** Investigate it; the hook usually catches real problems.
+- **Don't `--amend` after a failed pre-commit hook.** The hook failure means the commit didn't happen — `--amend` would modify the PREVIOUS commit, destroying that work. Fix, re-stage, create a NEW commit.
+- **Don't trust subagent "I remember from earlier" claims.** They have no memory across invocations. Confirm file paths, line numbers, or SHAs with `Read` / `Grep` / `Bash` first.
 - **Don't catch broad exception types** (`except Exception:`, `catch (Throwable e)`, `catch(_)`) unless you're at a request/job boundary and intend to log+continue. Narrow catches at the point of failure.
 - **Don't use mocking frameworks for repository-shaped interfaces.** Hand-rolled fakes with real state are simpler and survive refactors better.
 - **Don't refactor adjacent code** while implementing a feature. Separate refactor PRs from feature PRs; each gets cleaner review.
-- **Don't push directly to the protected branch.** The PR gate exists for a reason. If you genuinely need to bypass it (production emergency), document why and re-add the protection after.
-- **Don't merge with red CI.** Even "I know it's a flake." If it's a flake, fix the flake; if it's a real failure, the gate did its job. Override is a smell.
-- **Don't ship test config changes alongside feature changes.** When the feature regression you didn't catch ships, you want to bisect cleanly.
-- **Don't write tests that test the framework, not your code.** A test that asserts `JSON.parse('{"a":1}').a === 1` tests the runtime. A test that asserts your domain logic handles the parsed object correctly tests you.
+- **Don't push directly to the protected branch.** The PR gate exists for a reason; if you must bypass it (production emergency), document why and re-add protection after.
+- **Don't merge with red CI.** Even "I know it's a flake." If it's a flake, fix the flake; if it's real, the gate did its job. Override is a smell.
+- **Don't ship test config changes alongside feature changes.** When a missed regression ships, you want to bisect cleanly.
+- **Don't write tests that test the framework, not your code.** Assert your domain logic, not that the runtime parses JSON.
 - **Don't use real wall-clock time in tests.** Inject a clock. Tests that pass at 9 AM and fail at midnight haunt CI.
-- **Don't use unseeded random data in tests.** Use a fixed seed; reproducibility is non-negotiable. If a test exposes a real bug only under certain random inputs, that's a property-based test; capture the seed and turn it into a deterministic regression.
-- **Don't depend on test execution order.** Parallel-safe + order-independent. A test that breaks when run in isolation is broken.
+- **Don't use unseeded random data in tests.** Fixed seed; reproducibility is non-negotiable. A failing random input becomes a captured-seed deterministic regression.
+- **Don't depend on test execution order.** Parallel-safe + order-independent. A test that breaks in isolation is broken.
 - **Don't commit large binary blobs** without Git LFS. The repo grows monotonically; cloning slows for everyone forever.
-- **Don't change formatter rules incidentally.** A diff that's 90% reformatted and 10% feature is unreviewable. Run the formatter, commit it separately, then the feature.
-- **Don't add TODOs without ticket references.** A TODO becomes a permanent fixture without a deadline. `// TODO(#123): handle empty input` is acceptable; `// TODO: fix this` is debt with no owner.
+- **Don't change formatter rules incidentally.** A 90%-reformat / 10%-feature diff is unreviewable. Run the formatter, commit it separately, then the feature.
+- **Don't add TODOs without ticket references.** `// TODO(#123): handle empty input` is acceptable; `// TODO: fix this` is debt with no owner.
 - **Don't wholesale disable security features** ("temporarily" turn off CSRF, "just for this endpoint" skip auth). Temporary becomes permanent. Add the exception with explicit justification or design around the constraint.
 
 ------
 
 ## 15. Memory & Continuity (when working as an AI agent)
 
-These tips assume operation with persistent file-based memory across sessions (e.g. Claude Code's CLAUDE.md / memory tooling):
-
-- **Save user feedback as it arrives.** Especially "no, not that" corrections — they don't repeat unless you ask the user to. Also save confirmations of non-obvious decisions ("the bundled PR was right here").
-- **Save project context but not code patterns.** Code can be re-read; "the maintainer is the only QA tester" can't be derived from `git log`.
+- **Save user feedback as it arrives** — especially "no, not that" corrections, plus confirmations of non-obvious decisions. They don't repeat unless you ask.
+- **Save project context, not code patterns.** Code can be re-read; "the maintainer is the only QA tester" can't be derived from `git log`.
 - **Convert relative dates to absolute** when saving ("Thursday" → "2026-03-05"). Memory outlives the conversation.
-- **Don't trust your own memory as ground truth.** Before recommending from memory ("the X function exists in Y file"), grep / `Read` to verify it's still there.
-- **Subagents have no memory.** A subagent invocation starts blank every time. Pass forward decisions explicitly in the prompt; don't say "as we decided earlier" — the subagent wasn't there.
+- **Don't trust your own memory as ground truth** — grep / `Read` to verify before recommending from it.
+- **Subagents have no memory** — pass decisions forward explicitly; don't say "as we decided earlier."
 
 ------
 
 ## 16. PR Description Template
 
-> **Per §2: no mention of AI tools, LLMs, or assistants** in PR descriptions, test plans, or anywhere else in the PR. The template below contains no such mentions and you shouldn't add any.
-
-```markdown
-## Summary
-
-<1–3 sentences explaining what this PR does and why>
-
-- **<key change 1>** — <one-line description>
-- **<key change 2>** — <one-line description>
-
-### Deferred / out of scope
-
-- <thing you intentionally didn't do, with reason>
-
-## Test plan
-
-- [x] Local quality gate green: `<formatter>`, `<linter>`, `<type-checker>`, `<unit-tests>`, `<build>`, `<integration-tests>` (delete what doesn't apply)
-- [x] Any domain-specific audits clean
-- [ ] On-target verification:
-  - <specific check 1>
-  - <specific check 2>
-
-<Closes #N OR Refs #N>
-```
+Per §2, no mention of AI tools / LLMs / assistants anywhere in the PR (description, test plan, comments). Fill-in template: `~/.claude/docs/pr-template.md`.
 
 ------
 
 ## 17. Scaling beyond solo
 
-When a second engineer joins this codebase (or this CLAUDE.md gets dropped into a second project), four things need to scale. Designing for them now is an order of magnitude cheaper than retrofitting later.
-
-### 17.1 State across sessions
-
-- `docs/decisions/` captures non-obvious choices with dates. Future engineers (human or AI) read this before re-deriving. Format: `YYYY-MM-DD-<slug>.md` per decision, with **Context / Decision / Consequences** sections (the ADR pattern).
-- **Session summaries.** When ending a session with WIP, write a `WIP.md` at the branch root with three sections: what's done, what's left, blocker (if any). Commit it. The next session — yours or someone else's — starts from a known state.
-- **Memory tiers.** Per-user / per-machine memory (Claude Code's `~/.claude/CLAUDE.md`) holds personal context — your preferred tools, your working hours, your project list. Per-project memory (this `CLAUDE.md`) is committed and shared. Don't conflate them: personal preferences in the repo file pollute everyone else's context.
-
-### 17.2 Permissions at team scale
-
-- `.claude/settings.json` (committed) — patterns the team agrees on. Conservative — only what everyone needs.
-- `.claude/settings.local.json` (gitignored) — individual preferences. Pre-approve patterns that you personally trust but that the team hasn't ratified.
-- Never commit `--dangerously-skip-permissions` aliases or shell functions that bypass the permission system. The audit trail matters; per-pattern allowlists are the right granularity.
-
-### 17.3 Parallelism / coordination
-
-- **Read-only subagents** (architect, code-reviewer, qa, docs-reconciler) can be invoked concurrently by different team members on the same branch. They don't touch files — no race conditions.
-- **Mutating subagents** (senior-swe, release-engineer) coordinate via PR review. Only one mutating agent in flight per branch at a time.
-- **Long-running reconciliation passes** belong in CI on a schedule (weekly cron, or post-release hook), not in a developer's interactive session. The `docs-reconciler` agent runs at tier 1 (cheap greps) interactively; tier 3 (full re-read) runs in CI.
-
-### 17.4 Shared subagent library
-
-- Subagents in `.claude/agents/` are committed and travel with the repo. Everyone on the team gets the same architect / reviewer / qa personas — that's the point.
-- Personal extensions live in `~/.claude/agents/` (your home, not the repo). Don't fork the repo's agents in-place; layer personal agents on top.
-- When a personal agent proves valuable across multiple PRs, propose adding it to the repo via a `chore/agent: ...` PR. The team can review, refine, and adopt.
-- **Read-only vs mutating is signalled by the `tools:` allowlist, not a frontmatter flag.** A read-only agent omits `Edit`/`Write`; a mutating one includes them. Document the class in the §1 roster Concurrency column (the authoritative index). Do NOT add a `concurrency:` frontmatter key — it is not a supported sub-agent field, so the harness silently ignores it. Confirm any frontmatter key against the sub-agents docs before adding it.
+When a second engineer (human or AI) joins, four things need to scale: **state across sessions** (`docs/decisions/` ADRs, `WIP.md` handoffs, and separate per-user vs per-project memory tiers), **permissions** (committed `settings.json` for what everyone needs vs gitignored `settings.local.json` for personal pre-approvals; never commit permission-bypass aliases), **parallelism** (read-only subagents run concurrently; mutating ones coordinate via PR — one per branch), and the **shared subagent library** (committed in `.claude/agents/`; layer personal agents in `~/.claude/agents/`). Full detail: `~/.claude/docs/scaling.md`.
 
 ------
 
 ## 18. Extension Points
 
-The agent infrastructure supports four no-code extensions. If you find yourself wanting to fork or patch the Claude Code binary, stop — one of these likely covers it.
-
-| Extension       | Format                                            | Location                            | Use case                                                     |
-| --------------- | ------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------ |
-| **Subagents**   | Markdown with YAML frontmatter                    | `.claude/agents/*.md`               | New personas (e.g. `security-reviewer`, `performance-engineer`, `db-migration-specialist`) |
-| **Skills**      | Markdown with YAML frontmatter + supporting files | `.claude/skills/<name>/SKILL.md`    | Reusable workflows (e.g. `release-prep`, `add-feature-flag`, `db-migration`, `dependency-upgrade`) |
-| **Hooks**       | Shell scripts                                     | `.claude/hooks/*.sh`                | Pre/post-tool-call validation, audit logging, custom permission gates |
-| **MCP servers** | Protocol-based (any language)                     | Configured in user/project settings | Tool integrations (issue tracker, error tracking service, package registry, custom databases) |
-
-The discipline: if a use case doesn't fit any of these, the architecture has a gap worth reporting upstream rather than working around. Forking the binary trades extensibility for ownership burden — every Claude Code release becomes a merge conflict.
+Four no-code extensions cover almost everything before you'd fork the binary: **subagents** (`.claude/agents/*.md`), **skills** (`.claude/skills/<name>/SKILL.md`), **hooks** (`.claude/hooks/*.sh`), and **MCP servers** (configured in settings). If a use case fits none of them, the architecture has a gap worth reporting upstream rather than working around. Format table + examples: `STRUCTURE.md`.
 
 ------
 
@@ -430,7 +162,7 @@ The discipline: if a use case doesn't fit any of these, the architecture has a g
 
 ### 19.2 Stack
 
-- **Language(s):** Markdown (spine/rules/agents) + Bash targeting macOS system bash 3.2 (`hooks/*.sh`) + JSON (`settings.json`, `settings2.json`). No compiled code.
+- **Language(s):** Markdown (spine/rules/agents/docs) + Bash targeting macOS system bash 3.2 (`hooks/*.sh`) + JSON (`settings.json`, `settings2.json`). No compiled code.
 - **Runtime / platform:** Claude Code CLI on macOS/Linux; hooks run via the user shell and `jq` is a hard runtime dependency of both hooks.
 - **Framework(s):** None (only Claude Code extension points — §18).
 - **Storage:** None.
