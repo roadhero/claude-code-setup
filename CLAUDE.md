@@ -426,7 +426,7 @@ The discipline: if a use case doesn't fit any of these, the architecture has a g
 
 ### 19.1 What is this project?
 
-- **One-paragraph description:** This repository *is* a distributed Claude Code configuration, not an application: a stack-agnostic engineering spine (this `CLAUDE.md`, §1–18), platform rule packs (`rules/`), a 42-agent roster across four stacks (`agents/`, `agents-android/`, `agents-ios/`, `agents-compute/`), two safety hooks (`hooks/`), and a repo-scaffolder skill (`skills/new-repo/`). Users copy it into `~/.claude/` and per-repo. The product is the configuration's correctness and internal consistency; nothing is compiled or deployed. Public, MIT: github.com/roadhero/claude-code-setup.
+- **One-paragraph description:** This repository *is* a distributed Claude Code configuration, not an application: a stack-agnostic engineering spine (this `CLAUDE.md`, §1–18), platform rule packs (`rules/`), a 42-agent roster across four stacks (`agents/`, `agents-android/`, `agents-ios/`, `agents-compute/`), two hooks — a commit guard and a format-on-save hook (`hooks/`) — and a repo-scaffolder skill (`skills/new-repo/`). Users copy it into `~/.claude/` and per-repo. The product is the configuration's correctness and internal consistency; nothing is compiled or deployed. Public, MIT: github.com/roadhero/claude-code-setup.
 
 ### 19.2 Stack
 
@@ -437,7 +437,7 @@ The discipline: if a use case doesn't fit any of these, the architecture has a g
 - **Build / package:** None — files are copied verbatim into `~/.claude/`; `package.json` is intentionally absent.
 - **Test runner:** None; verification is static (§19.3).
 - **CI:** None currently (no `.github/workflows`); the gate runs locally before tagging.
-- **Distribution channel:** Public GitHub `roadhero/claude-code-setup`, MIT, released as annotated `vX.Y.Z` tags + GitHub Releases (§18B Rule 2). No package registry.
+- **Distribution channel:** Public GitHub `roadhero/claude-code-setup`, MIT, released as annotated `vX.Y.Z` tags + a matching GitHub Release. No package registry.
 
 ### 19.3 Local quality gate
 
@@ -457,7 +457,7 @@ Requires `shellcheck` and `jq` (the hooks need `jq` at runtime too) — `brew in
 
 - **Live version:** v1.0.1 (annotated tag, latest on `main`).
 - **In flight:** none (set per session).
-- **CHANGELOG:** none — release notes are the GitHub Release body generated from `git log` between tags (§18B Rule 2).
+- **CHANGELOG:** none — release notes are the GitHub Release body, generated from `git log` between tags.
 - **Spec / PRD:** `README.md` + `STRUCTURE.md` are canonical.
 - **Roadmap:** none.
 - **WIP file:** none.
@@ -471,7 +471,7 @@ Requires `shellcheck` and `jq` (the hooks need `jq` at runtime too) — `brew in
 > Each override erodes the predictability §1–18 provides; treat them as debt with a documented reason. Review quarterly: can any be removed?
 
 - §19.3 replaces the build/unit/integration gate with static analysis (shellcheck + jq + a name-invariant grep) — reason: this repo ships configuration, not code; nothing to compile or unit-test.
-- §18B Rule 2 release notes come from the GitHub Release body instead of a `CHANGELOG.md` — reason: no CHANGELOG is maintained here.
+- Release notes come from the GitHub Release body instead of a `CHANGELOG.md` — reason: no CHANGELOG is maintained here.
 - Platform rule-pack path-triggering (`rules/{web,android,ios,compute}.md`) never fires in this repo — it has no matching source files. Expected.
 - No CI yet — candidate follow-up: a GitHub Action running §19.3 on PR.
 

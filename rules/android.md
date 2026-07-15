@@ -6,9 +6,7 @@ paths:
   - "**/build.gradle.kts"
   - "**/AndroidManifest.xml"
   - "**/gradle/libs.versions.toml"
-  - "**/src/**/test/**"
   - "**/src/**/androidTest/**"
-  - ".github/workflows/**"
 ---
 
 # Android Overlay (Kotlin + Compose + Hilt + Room)

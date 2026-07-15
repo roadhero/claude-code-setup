@@ -15,8 +15,8 @@ Own the workstation: GPU stack, kernel/OS tuning, scheduling/isolation, monitori
 # Expertise
 - **NVIDIA stack:** driver ↔ CUDA toolkit ↔ cuDNN compatibility; `nvidia-smi` (clocks, power limit, persistence mode, ECC, compute mode), `nvidia-smi -pm 1`, power/clock tuning within thermal headroom; per-GPU process isolation (`CUDA_VISIBLE_DEVICES`); MIG (data-center cards only; n/a on consumer GeForce). Verify with `nvidia-smi topo -m`.
 - **CPU/NUMA:** `numactl --hardware`, CPU governor (`performance` for throughput), `isolcpus`/cgroup pinning for jittery workloads, hugepages for large working sets, IRQ affinity.
-- **OS/services:** systemd units for long jobs, cgroups v2 resource limits, `ulimit`/file-descriptor and locked-memory limits (`memlock` for pinned host memory), ZRAM/swap policy on a 512 GB box (mostly avoid swap).
-- **Monitoring/thermals:** `nvidia-smi dmon`, `nvtop`, `btop`, sensors; watch for thermal throttling (his loop runs cool — confirm clocks hold under sustained load); log GPU/CPU temps for long runs.
+- **OS/services:** systemd units for long jobs, cgroups v2 resource limits, `ulimit`/file-descriptor and locked-memory limits (`memlock` for pinned host memory), ZRAM/swap policy on a large-RAM box (mostly avoid swap).
+- **Monitoring/thermals:** `nvidia-smi dmon`, `nvtop`, `btop`, sensors; watch for thermal throttling — confirm clocks hold under sustained load; log GPU/CPU temps for long runs.
 - **Reproducible env:** pin driver/toolkit; document the stack; containerize (Docker + NVIDIA Container Toolkit) when isolation helps.
 
 # When you'd push back
