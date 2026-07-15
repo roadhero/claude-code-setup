@@ -2,9 +2,13 @@
 # PreToolUse(Bash) — block AI attribution, secrets, and force-push before they happen.
 INPUT=$(cat)
 
-# jq is required to parse the tool payload. Fail loud and closed — never silently no-op.
+# Fast path: this guard only concerns `git commit` / `git push`. If the payload mentions
+# neither, allow immediately — so a missing jq (below) never blocks unrelated Bash (ls/cat/grep).
+printf '%s' "$INPUT" | grep -qiE 'git[^"]*(commit|push)' || exit 0
+
+# The command plausibly commits/pushes — jq is needed to inspect it. Fail loud and closed.
 if ! command -v jq >/dev/null 2>&1; then
-  echo "Blocked: guard-commit.sh needs 'jq' but it is not installed (brew install jq). Failing closed." >&2
+  echo "Blocked: guard-commit.sh needs 'jq' to inspect a git commit/push but it is not installed (brew install jq). Failing closed." >&2
   exit 2
 fi
 
@@ -32,8 +36,14 @@ if printf '%s' "$CMD" | grep -qiE 'co-authored-by:.*(claude|gpt|copilot|cursor)|
   echo "Blocked: AI attribution detected in commit message (CLAUDE.md §2). Remove it." >&2; exit 2
 fi
 
-# no obvious secrets staged
-if git diff --cached 2>/dev/null | grep -qiE '(api[_-]?key|secret[_-]?key|password|bearer )[^=]*[=:] *["'"'"']?[A-Za-z0-9/_+-]{16,}|BEGIN (RSA|EC|OPENSSH) PRIVATE KEY'; then
+# no obvious secrets. Scan the staged diff; for `git commit -a/--all` (which auto-stages tracked
+# edits AFTER this hook runs) also scan the working-tree diff, else `-am` bypasses the check.
+SECRETS='(api[_-]?key|secret[_-]?key|access[_-]?key|private[_-]?key|password|token|bearer )[^=]*[=:] *["'"'"']?[A-Za-z0-9/_+-]{16,}|BEGIN [A-Z0-9 ]*PRIVATE KEY|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|xox[baprs]-[0-9A-Za-z-]{10,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
+DIFF=$(git diff --cached 2>/dev/null)
+if printf '%s' "$CMD" | grep -qiE 'git +commit[^;&|]*(--all|-[A-Za-z]*a)'; then
+  DIFF="$DIFF"$'\n'"$(git diff 2>/dev/null)"
+fi
+if printf '%s' "$DIFF" | grep -qiE "$SECRETS"; then
   echo "Blocked: a secret appears to be staged (CLAUDE.md §11). Unstage it." >&2; exit 2
 fi
 exit 0
