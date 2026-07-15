@@ -1,5 +1,5 @@
 ---
-name: new-repo-scaffold
+name: new-repo
 description: Scaffold a new repository with the engineering-config hygiene the spine and rules assume. Use when starting a new project, initializing a repo, or "setting up" a web/backend or Android codebase. Lays down .gitignore (with secret patterns), CHANGELOG.md, docs/ stubs (PRD/ROADMAP/ADR), a CI quality-gate + release workflow, and the per-repo CLAUDE.md (§19); for Android, also copies the 7 Android subagents into .claude/agents/. Detects the stack or takes web|android explicitly. Never overwrites existing files.
 ---
 
@@ -21,9 +21,9 @@ Starting or initializing a new project, or a repo that's missing the standard sc
 ## Procedure
 
 1. Determine stack (detect or ask). Set `STACK=web|android`.
-2. From this skill's `templates/`, copy `common/` + `<STACK>/` files into the repo, **skipping any that already exist**. Template files use a `.tmpl` suffix to avoid clobbering — strip it on copy (e.g. `gitignore.tmpl` → `.gitignore`).
-3. For **android**: also `mkdir -p .claude/agents` and copy the 7 files from `~/.claude/agents-android/` if present (or tell the user where to get them). For **web**: no local agents — it inherits the 15 global agents.
-4. Drop the per-repo `CLAUDE.md` (§19 template) at the repo root.
+2. From this skill's `templates/`, copy `common/` + `<STACK>/` files into the repo, **skipping any that already exist**. Template files use a `.tmpl` suffix to avoid clobbering — strip it on copy (e.g. `gitignore.tmpl` → `.gitignore`, `<STACK>/CLAUDE.md.tmpl` → `./CLAUDE.md`). Workflow templates land under `.github/workflows/` (`gate.yml`, `release.yml`); `docs/` stubs under `docs/`.
+3. **Merge the stack ignores.** `gitignore-extra.tmpl` is not a standalone file — append its contents to the `.gitignore` created in step 2 (idempotent: skip if those lines are already present). This is the one exception to never-overwrite, since `.gitignore` is meant to be extended per stack.
+4. For **android**: also `mkdir -p .claude/agents` and copy the 7 files from `~/.claude/agents-android/` if present (or tell the user where to get them). For **web**: no local agents — it inherits the 15 global agents.
 5. `git init` only if `.git` is absent. Stage nothing automatically — let the user review.
 6. Print the created/skipped report and the 3 manual follow-ups: fill §19, set the version source, wire branch protection (§7.3).
 
@@ -35,6 +35,8 @@ Starting or initializing a new project, or a repo that's missing the standard sc
 
 **web/**: `.github/workflows/gate.yml` (format/lint/typecheck/test/build), `.github/workflows/release.yml` (tag↔version parity → publish), `CLAUDE.md` (§19, generic).
 
+**`<STACK>/gitignore-extra.tmpl`** (both stacks): appended to `.gitignore` in step 3 — web adds `node_modules/`, `dist/`, `.next/`, `coverage/`, `*.tsbuildinfo`; android adds `.gradle/`, `build/`, `local.properties`, `*.apk`/`*.aab`, etc.
+
 ## Secret patterns the .gitignore enforces (§11)
 
-`*.env`, `.env.*`, `*.pem`, `*.key`, `*.keystore`, `*.jks`, `**/secrets/`, `*.p12`, `google-services.json` (android), `service-account*.json`, `*.tfstate*`. The user adds project-specific paths.
+`*.env`, `.env.*`, `*.pem`, `*.key`, `*.keystore`, `*.jks`, `**/secrets/`, `*.p12`, `google-services.json` (android), `credentials.json`, `service-account*.json`, `*.tfstate*`. The user adds project-specific paths.
