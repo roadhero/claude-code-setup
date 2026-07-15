@@ -13,7 +13,7 @@ paths:
 
 # iOS Overlay (Swift + SwiftUI)
 
-> Loads when Swift/Xcode files are present. Assumes a modern stack: Swift 6 (strict concurrency), SwiftUI (+ targeted UIKit interop), the Observation framework, SwiftData or Core Data, Swift Package Manager, XCTest/Swift Testing, fastlane, App Store Connect / TestFlight. Framework sections (WidgetKit, App Intents, StoreKit 2, CloudKit, Core Location, HealthKit) are scoped "If you use it" — delete what doesn't apply.
+> Path-triggered: loads when Claude reads a file matching this pack's `paths:` glob (`*.swift`, `*.pbxproj`, `Package.swift`, …; see frontmatter). Assumes a modern stack: Swift 6 (strict concurrency), SwiftUI (+ targeted UIKit interop), the Observation framework, SwiftData or Core Data, Swift Package Manager, XCTest/Swift Testing, fastlane, App Store Connect / TestFlight. Framework sections (WidgetKit, App Intents, StoreKit 2, CloudKit, Core Location, HealthKit) are scoped "If you use it" — delete what doesn't apply.
 
 ## 5. Architecture Patterns (SwiftUI + Observation)
 

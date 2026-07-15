@@ -13,7 +13,7 @@ paths:
 
 # Android Overlay (Kotlin + Compose + Hilt + Room)
 
-> Loads when Android/Kotlin/Gradle files are present. Assumes Kotlin + Jetpack Compose + Hilt + Room + Coroutines + Gradle KTS + GitHub Actions. Framework sections (WorkManager, AlarmManager, Health Connect, Vico, Firebase, Play Billing, Glance) are scoped "If you use it" — delete what doesn't apply.
+> Path-triggered: loads when Claude reads a file matching this pack's `paths:` glob (`*.kt`/`*.kts`, `build.gradle*`, `AndroidManifest.xml`, …; see frontmatter). Assumes Kotlin + Jetpack Compose + Hilt + Room + Coroutines + Gradle KTS + GitHub Actions. Framework sections (WorkManager, AlarmManager, Health Connect, Vico, Firebase, Play Billing, Glance) are scoped "If you use it" — delete what doesn't apply.
 
 ## 5. Architecture Patterns (Compose + Hilt + Room)
 

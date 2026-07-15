@@ -23,7 +23,7 @@ paths:
 
 # Web / Backend Overlay (general software)
 
-> Loads when web/backend source is detected (TS/JS, Python, Go, Rust, Ruby, …). This is the non-mobile flavor of the architecture/release/testing/concurrency/compliance sections. §13 retains all distribution targets (web, mobile, backend, libraries, CLI) as a cross-reference.
+> Path-triggered: loads when Claude reads a file matching this pack's `paths:` glob (`*.ts`/`*.tsx`/`*.js`, `*.py`, `*.go`, `*.rs`, `package.json`, `pyproject.toml`, …; see frontmatter). Owns Python for the whole setup. This is the non-mobile flavor of the architecture/release/testing/concurrency/compliance sections. §13 retains all distribution targets (web, mobile, backend, libraries, CLI) as a cross-reference.
 
 ## 5. Architecture Patterns
 
