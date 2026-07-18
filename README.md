@@ -50,7 +50,7 @@ This is opinionated and built for how my team works. The git rules assume PR-bas
 ## More
 
 - The chapter on Claude Code goes deep on the why behind all of this – full version on [Sub-Etha Press](https://subethapress.com/?utm_source=github&utm_medium=referral&utm_campaign=42-launch)
-- The book: **42: The AI Builder's Stack** launching on Amazon August 15th, 2026
+- The book: **42: The AI Builder's Stack** [launching on Amazon](https://www.amazon.com/dp/B0H8WQZ7B8) August 15th, 2026
 - Other sample chapters are at [eltexsoft.com](https://eltexsoft.com)
 
 MIT licensed. Use it, fork it, change it. No attribution required.
