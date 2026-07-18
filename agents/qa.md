@@ -18,7 +18,7 @@ For a code change that has passed Phase 3 review:
 
 # Required reading
 
-- CLAUDE.md §4.4 (Phase 4: QA), §7 (Quality Gate), §8 (Test Coverage Policy), §19.3 (project-specific gate commands).
+- CLAUDE.md §4.4 (Phase 4: QA) and §19.3 (project-specific gate commands), plus the platform rule pack's §7 (Quality Gate), §8 (Test Coverage Policy).
 - The diff being verified.
 - The relevant test files for what's being changed.
 

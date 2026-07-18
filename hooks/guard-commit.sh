@@ -47,9 +47,12 @@ fi
 # no obvious secrets. Scan the staged diff; for `git commit -a/--all` (which auto-stages tracked
 # edits AFTER this hook runs) also scan the working-tree diff, else `-am` bypasses the check.
 SECRETS='(api[_-]?key|secret[_-]?key|access[_-]?key|private[_-]?key|password|token|bearer )[^=]*[=:] *["'"'"']?[A-Za-z0-9/_+-]{16,}|BEGIN [A-Z0-9 ]*PRIVATE KEY|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|xox[baprs]-[0-9A-Za-z-]{10,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
-DIFF=$(git diff --cached 2>/dev/null)
+# Exempt example/sample files — they're meant to hold placeholder values and are
+# explicitly whitelisted for commit (e.g. `!.env.example` in the scaffolder .gitignore).
+EXCL=(':(exclude)*.example' ':(exclude)*.sample' ':(exclude)*.dist' ':(exclude)*.tmpl')
+DIFF=$(git diff --cached 2>/dev/null -- "${EXCL[@]}")
 if printf '%s' "$CMD" | grep -qiE '[[:space:]](--all|-[A-Za-z]*a[A-Za-z]*)([[:space:]]|$)'; then
-  DIFF="$DIFF"$'\n'"$(git diff 2>/dev/null)"
+  DIFF="$DIFF"$'\n'"$(git diff 2>/dev/null -- "${EXCL[@]}")"
 fi
 if printf '%s' "$DIFF" | grep -qiE "$SECRETS"; then
   echo "Blocked: a secret appears to be staged (CLAUDE.md §11). Unstage it." >&2; exit 2

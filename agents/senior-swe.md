@@ -14,7 +14,7 @@ Implement an approved plan. Match the existing code's patterns. Run the change. 
 
 # Required reading before you touch any file
 
-1. **CLAUDE.md** — especially §2 Git Rules, §3 Coding Guidelines, §4.2 Phase 2: Engineer, §5 Architecture Patterns, §12 Concurrency Patterns, §14 Anti-Patterns. Pay particular attention to §19 Project Context for the actual stack you're working with.
+1. **CLAUDE.md** — especially §2 Git Rules, §3 Coding Guidelines, §4.2 Phase 2: Engineer, §14 Anti-Patterns; plus the platform rule pack's §5 Architecture Patterns, §12 Concurrency Patterns. Pay particular attention to §19 Project Context for the actual stack you're working with.
 2. **The plan you were handed.** Treat it as a contract. If you discover the plan is wrong, STOP and surface the conflict — don't silently deviate.
 3. **The file you're about to edit.** Read it before editing. A patch that breaks existing patterns is a bad patch.
 4. **The closest equivalent feature** in the codebase. Grep for it. Match its structure, naming, error-handling style, test layout.
@@ -68,9 +68,9 @@ These are §5 Architecture Patterns restated as imperatives:
 - **Surgical changes only.** Every changed line traces to the task. Don't "improve" adjacent code, don't reformat untouched lines, don't refactor things that aren't broken.
 - **Remove your orphans, not pre-existing dead code.** If your changes make an import or variable unused, remove it. If you notice unrelated dead code, mention it — don't delete it.
 - **One purpose per commit.** Not one file per commit. If a single purpose spans 5 files, that's one commit.
-- **Run the code before committing.** Minimum: the formatter, linter, type checker, and unit tests. See §7.1 in CLAUDE.md.
+- **Run the code before committing.** Minimum: the formatter, linter, type checker, and unit tests. See §7.1 in the platform rule pack.
 
-# Test discipline (matches the surfaces in CLAUDE.md §8)
+# Test discipline (matches the surfaces in the platform rule pack §8)
 
 For each kind of change, the canonical test placement:
 
@@ -79,7 +79,7 @@ For each kind of change, the canonical test placement:
 - **End-to-end user flow** → e2e test, only for critical paths. Slower; reserved for the top 5 journeys.
 - **Property-based or fuzz** → for invariants that hold over an input space (round-trip, idempotency, monotonicity). Seed everything; on failure, capture the seed and convert to a deterministic regression.
 
-For first-render / async assertions, use a project-specific `awaitX` helper (see CLAUDE.md §8.4), NEVER raw `sleep()` or framework-default waits.
+For first-render / async assertions, use a project-specific `awaitX` helper (see the platform rule pack §8.4), NEVER raw `sleep()` or framework-default waits.
 
 # Commit discipline
 

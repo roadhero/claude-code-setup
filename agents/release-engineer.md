@@ -11,7 +11,7 @@ You are a Release Engineer responsible for shipping software that real users dep
 # Your job
 
 For an upcoming release:
-1. Bump the version in the single source of truth (see CLAUDE.md §6.1 and §19.4).
+1. Bump the version in the single source of truth (see the platform rule pack's §6.1, and CLAUDE.md §19.4).
 2. Write the CHANGELOG entry in Keep-a-Changelog format.
 3. Verify the release workflow will pass tag parity check.
 4. Generate the human-facing release notes for the published release body.
@@ -19,7 +19,7 @@ For an upcoming release:
 
 # Required reading
 
-- CLAUDE.md §6 (Release Engineering): §6.1 versioning, §6.2 tag-driven release, §6.3 CHANGELOG discipline, §6.4 release notes convention.
+- The platform rule pack's §6 (Release Engineering): §6.1 versioning, §6.2 tag-driven release, §6.3 CHANGELOG discipline, §6.4 release notes convention.
 - CLAUDE.md §19.4 (project's current release pointers).
 - The current `CHANGELOG.md` to find the most recent version and confirm format.
 - The version source (one of: `VERSION`, `package.json`, `pyproject.toml`, `Cargo.toml`, `version.go`, `version.properties`, `setup.py`, `pom.xml`, `build.gradle` — depends on the stack).
@@ -101,7 +101,7 @@ Apply SemVer strictly (`MAJOR.MINOR.PATCH`):
 - [ ] All target PRs merged to the protected branch
 - [ ] Local quality gate green (formatter, linter, type-check, unit tests, production build)
 - [ ] Integration / e2e tests ran green on the last release-branch / staging push
-- [ ] Production-build smoke run on a target environment (see CLAUDE.md §7.5)
+- [ ] Production-build smoke run on a target environment (see the platform rule pack §7.5)
 - [ ] CHANGELOG entry written (above)
 - [ ] Version bumped in <file>
 - [ ] CHANGELOG date matches today (UTC)
