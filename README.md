@@ -1,6 +1,6 @@
 # Claude Code setup
 
-This is the actual Claude Code configuration I run day to day at [EltexSoft](https://eltexsoft.com): a stack-agnostic engineering "spine," platform-specific rule packs that load per file via path globs, a roster of **42 subagents across four stacks**, a commit-guard hook plus an auto-formatter, and a repo scaffolder. It's the same setup I describe in **42: The AI Builder's Stack**. Take what's useful.
+This is the actual Claude Code configuration I run day to day at [EltexSoft](https://eltexsoft.com): a stack-agnostic engineering "spine," platform-specific rule packs that load per file via path globs, a roster of **42 subagents across four stacks**, a commit-guard hook plus an auto-formatter, and a repo scaffolder. It's the same setup I describe in **[42: The AI Builder's Stack](https://subethapress.com)**. Take what's useful.
 
 Most people publish a single `CLAUDE.md` and call it a setup. The thing that actually makes Claude Code reliable is structure: a global file that never changes, rules that load only when Claude reads a file matching their path globs, agents scoped to one job each, and hooks that stop bad commits before they happen. That's what's here.
 
