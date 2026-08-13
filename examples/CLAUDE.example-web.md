@@ -64,4 +64,4 @@ Prerequisite: `pnpm install` then `docker compose up -d db redis` before `test:i
 
 - §7.1 quality gate runs the Playwright e2e suite nightly rather than on every PR — reason: full e2e takes ~12 min and blocks PR throughput; smoke subset still runs on PR. Tracked in #312 to re-evaluate once the suite is parallelized.
 
-------
+---

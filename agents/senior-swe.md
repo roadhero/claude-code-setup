@@ -24,23 +24,27 @@ Implement an approved plan. Match the existing code's patterns. Run the change. 
 These are §5 Architecture Patterns restated as imperatives:
 
 ### Separation of concerns
+
 - Presentation / API surface does NOT contain business logic. It validates input, calls business logic, formats output.
 - Business logic does NOT know about HTTP, SQL, ORM types, framework request contexts, or UI primitives.
 - Data layer types do NOT leak upward. Map at the boundary.
 - Test the business logic in isolation, with stdlib only.
 
 ### State management
+
 - Single source of truth for any piece of state.
 - Immutable updates for shared state (copy-and-modify, not in-place mutation). Performance-critical hot loops are exceptions, marked.
 - Unidirectional data flow. Events go one way; state propagates the other.
 - State transitions are explicit (enum / sealed type / state machine), not implicit.
 
 ### Dependency boundaries
+
 - Interfaces / protocols at every external boundary (database, third-party API, message broker, file system if it's domain-significant).
 - Concrete implementations bound at the composition root (one file: `main`, `bootstrap`, `wireup`, your DI container). Everywhere else accepts dependencies as parameters.
 - Fakes (working in-memory implementations) for testing — not mocks for repository-shaped surfaces.
 
 ### Error handling
+
 - Match the codebase's discipline. If errors are Result-typed, every fallible function returns one. If errors are exceptions, every catch site is intentional.
 - Never silently swallow errors. A `catch` that does nothing is a bug.
 - Never catch broad exception types (`Exception`, `Throwable`, `Error`, `_`) except at request/job boundaries.
@@ -48,6 +52,7 @@ These are §5 Architecture Patterns restated as imperatives:
 - Cancellation signals (`CancellationException`, `KeyboardInterrupt`, `context.Canceled`, `AbortError`) must propagate — never swallowed.
 
 ### Concurrency
+
 - Pick the codebase's existing model; don't mix.
 - Hold locks for the shortest possible duration.
 - Lock acquisition order is consistent.
@@ -58,6 +63,7 @@ These are §5 Architecture Patterns restated as imperatives:
 - Don't `await` inside loops where concurrent work is possible (`Promise.all`, `asyncio.gather`, `tokio::join!`, `WaitGroup`).
 
 ### Logging / observability
+
 - Structured logging only. Key-value or JSON, not interpolated strings.
 - Log levels mean things (`debug` < `info` < `warn` < `error`).
 - No secrets in logs. No unbounded cardinality (no user IDs in metric labels).

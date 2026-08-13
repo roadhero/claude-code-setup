@@ -55,7 +55,7 @@ Read the git diff. Walk it against the checklists below. Produce a structured re
 
 1. **Trace.** Does this line trace to the task? If not, suggest reverting it.
 2. **Hardcodes.** Any hardcoded values that should be resource / BuildConfig / config / env? (Magic numbers, magic strings, magic URLs, magic IDs.)
-3. **Error handling.** Missing handling for *realistic* failure cases. Not hypothetical ones — real ones: network down, disk full, permission denied, intent not resolved, db corrupt.
+3. **Error handling.** Missing handling for _realistic_ failure cases. Not hypothetical ones — real ones: network down, disk full, permission denied, intent not resolved, db corrupt.
 4. **Security.** Unsanitized input, leaked secret in code/logs, path traversal, intent redirection, exported component, implicit intent for sensitive data, deep-link without validation, `WebView` with JS bridge or unrestricted file access, `setAllowFileAccess(true)`, hardcoded API key.
 5. **Style.** Naming, patterns, indentation match existing code? Variable names noun, function names verb? Kotlin idioms used (sealed class for state, `when` over `if-else if`, `requireNotNull` vs `!!`)?
 6. **Debug residue.** Leftover `Log.d`, `println`, TODOs without ticket reference, commented-out code blocks, `@Ignore` on tests without comment why.
@@ -74,26 +74,26 @@ Read the git diff. Walk it against the checklists below. Produce a structured re
 
 # Android-specific red flags (grep these in the diff)
 
-| Pattern | Why it's a red flag |
-|---|---|
-| `GlobalScope.launch` | Should be `viewModelScope` / `lifecycleScope` / Hilt-injected scope |
-| `runBlocking` | Almost never correct in app code. Test setup is the exception. |
-| `Locale.getDefault()` in analytics keys, file names, internal logs | Use `Locale.US` / `Locale.ROOT` for non-user-visible strings |
-| `MutableLiveData` in new code | Project should be on `StateFlow` |
-| `lateinit var` on a Compose state | Suggests escaped state from a parent that should own it |
-| `!!` (non-null assertion) | Almost always a smell. `requireNotNull(x) { "...reason..." }` if it must crash |
-| `Thread.sleep` outside a test | Coroutine `delay` if in a suspending context, otherwise refactor |
-| `findViewById` | Project is Compose-only |
-| `kotlinx.coroutines.GlobalScope` import | Same as `GlobalScope.launch` red flag |
-| New permission in `AndroidManifest.xml` | Triggers Data Safety re-review. Must be in PR description. |
-| New `<uses-feature>` | Restricts Play Store eligibility — must be intentional |
-| `exported="true"` on activity/service/receiver | Security review required — is it really meant to be invoked by other apps? |
-| `signingConfig = signingConfigs.getByName("debug")` on release build | Catastrophic. Reject. |
-| `proguard-rules.pro` adding `-keep class * { *; }` or `-dontobfuscate` or `-keep class com.foo.** { *; }` | Wholesale keep — narrow it |
-| `@Serializable` data class added without proguard rule | R8 will strip the generated companion's serializer |
-| `Channel(Channel.UNLIMITED)` | Almost never correct — backpressure becomes invisible OOM. Default is BUFFERED. |
-| `withContext(Dispatchers.Main) { /* heavy work */ }` | Wrong dispatcher |
-| `companion object` containing a `MutableStateFlow` or mutable state | Shared mutable state across all instances. Almost certainly wrong. |
+| Pattern                                                                                                   | Why it's a red flag                                                             |
+| --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `GlobalScope.launch`                                                                                      | Should be `viewModelScope` / `lifecycleScope` / Hilt-injected scope             |
+| `runBlocking`                                                                                             | Almost never correct in app code. Test setup is the exception.                  |
+| `Locale.getDefault()` in analytics keys, file names, internal logs                                        | Use `Locale.US` / `Locale.ROOT` for non-user-visible strings                    |
+| `MutableLiveData` in new code                                                                             | Project should be on `StateFlow`                                                |
+| `lateinit var` on a Compose state                                                                         | Suggests escaped state from a parent that should own it                         |
+| `!!` (non-null assertion)                                                                                 | Almost always a smell. `requireNotNull(x) { "...reason..." }` if it must crash  |
+| `Thread.sleep` outside a test                                                                             | Coroutine `delay` if in a suspending context, otherwise refactor                |
+| `findViewById`                                                                                            | Project is Compose-only                                                         |
+| `kotlinx.coroutines.GlobalScope` import                                                                   | Same as `GlobalScope.launch` red flag                                           |
+| New permission in `AndroidManifest.xml`                                                                   | Triggers Data Safety re-review. Must be in PR description.                      |
+| New `<uses-feature>`                                                                                      | Restricts Play Store eligibility — must be intentional                          |
+| `exported="true"` on activity/service/receiver                                                            | Security review required — is it really meant to be invoked by other apps?      |
+| `signingConfig = signingConfigs.getByName("debug")` on release build                                      | Catastrophic. Reject.                                                           |
+| `proguard-rules.pro` adding `-keep class * { *; }` or `-dontobfuscate` or `-keep class com.foo.** { *; }` | Wholesale keep — narrow it                                                      |
+| `@Serializable` data class added without proguard rule                                                    | R8 will strip the generated companion's serializer                              |
+| `Channel(Channel.UNLIMITED)`                                                                              | Almost never correct — backpressure becomes invisible OOM. Default is BUFFERED. |
+| `withContext(Dispatchers.Main) { /* heavy work */ }`                                                      | Wrong dispatcher                                                                |
+| `companion object` containing a `MutableStateFlow` or mutable state                                       | Shared mutable state across all instances. Almost certainly wrong.              |
 
 # Compose-specific red flags
 

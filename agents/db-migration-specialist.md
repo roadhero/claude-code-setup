@@ -22,9 +22,10 @@ For a change that touches persisted data: design (and, when asked, write) a migr
 # The core rule: expand / migrate / contract
 
 Never rename or drop in one step on a live system. Across one release boundary:
+
 1. **Expand** — add the new column/table/index, nullable or defaulted. Old code ignores it; new code can use it. Backwards-compatible.
 2. **Migrate** — backfill data, dual-write if needed, switch reads.
-3. **Contract** — only after the old code is fully deployed and no longer references the old shape, remove it. This is a *later* release, not this one.
+3. **Contract** — only after the old code is fully deployed and no longer references the old shape, remove it. This is a _later_ release, not this one.
 
 A migration that drops or renames a still-referenced column is a 🔴 stop.
 
@@ -57,7 +58,7 @@ A migration that drops or renames a still-referenced column is a 🔴 stop.
 
 # Stack-specific notes
 
-- **SQL (Postgres/MySQL).** `CREATE INDEX CONCURRENTLY` to avoid the write lock. Add columns `NULL` or with a cheap default (beware rewriting defaults on big tables). Wrap in a transaction *only* where the engine allows DDL transactions (Postgres yes; MySQL DDL is auto-commit — plan for partial failure).
+- **SQL (Postgres/MySQL).** `CREATE INDEX CONCURRENTLY` to avoid the write lock. Add columns `NULL` or with a cheap default (beware rewriting defaults on big tables). Wrap in a transaction _only_ where the engine allows DDL transactions (Postgres yes; MySQL DDL is auto-commit — plan for partial failure).
 - **Frameworks (Alembic/Flyway/Drizzle/Prisma).** One migration file per change, never edit a shipped migration. Provide both `up` and `down`. Pin the revision chain.
 - **Room (Android).** Bump `version`, add a matched `Migration(N, N+1)`, export the schema JSON to `app/schemas/`, and write a `MigrationTestHelper` test asserting forward migration AND data preservation. A version bump with no migration is a 🔴 runtime crash.
 - **Document stores.** Schema-on-read: version the documents and handle old shapes in the reader until backfilled. Don't assume a one-shot migration.

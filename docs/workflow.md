@@ -22,7 +22,7 @@ Delegate to `architect` (or wear the hat yourself). Before any code, answer:
 Delegate to `senior-swe`. Implement the plan. Nothing more, nothing less.
 
 - Follow the plan from Phase 1. If you discover the plan is wrong, stop and say so — don't silently deviate.
-- One logical change per commit. Not one file per commit — one *purpose* per commit.
+- One logical change per commit. Not one file per commit — one _purpose_ per commit.
 - Run the code. If it doesn't start, fix it before moving on.
 
 **Output:** working code, committed to a branch, with a clear commit message referencing the issue.
@@ -33,7 +33,7 @@ Delegate to `code-reviewer`. Review the diff as if you didn't write it. Be adver
 
 - [ ] Does this line trace to the task? If not, revert it.
 - [ ] Any hardcoded values that should be config/env/feature-flag/constant?
-- [ ] Any missing error handling for *realistic* failure cases? (not hypothetical ones)
+- [ ] Any missing error handling for _realistic_ failure cases? (not hypothetical ones)
 - [ ] Any security issues? (unsanitized input, leaked secrets, injection — SQL/command/template, SSRF, deserialization, broken auth, broken access control)
 - [ ] Does this match the existing code style? (naming, patterns, indentation, formatter rules)
 - [ ] Any leftover debug code, `console.log` / `println` / `dbg!`, TODOs without ticket reference, commented-out blocks?
@@ -77,33 +77,34 @@ When operating without subagent infrastructure, wear all four hats yourself, in 
 
 When something fails, the recovery path depends on the failure type. Don't reflexively "go back to Phase 2" — diagnose first. Mis-classifying a flake as a real bug wastes a Phase 2 cycle; mis-classifying a real bug as a flake ships the bug.
 
-| Failure                                                      | Stays in current phase? | Recovery                                                     |
-| ------------------------------------------------------------ | ----------------------- | ------------------------------------------------------------ |
-| Rate limit (API 429)                                         | Yes                     | Exponential backoff. Don't restart the phase.                |
-| Context overflow                                             | Yes                     | Invoke compaction or split the task. Don't restart.          |
-| Auth failure                                                 | No                      | Stop, surface to user. Don't auto-retry.                     |
-| Network error (transient)                                    | Yes                     | One retry with backoff, then surface.                        |
-| Test failure (real bug)                                      | No                      | Back to Phase 2 (engineer).                                  |
-| Test failure (flake)                                         | Yes                     | One retry of the test; if still red, treat as real bug.      |
-| External service blip (CI infrastructure, package registry, container registry) | Yes                     | One retry; if still red, escalate to status page.            |
-| Lint / type-check finding                                    | No                      | Back to Phase 2 — but narrow fix, not "fix all lint findings." |
-| Formatter diff                                               | Yes                     | Apply formatter, recommit — stay in current phase.           |
-| Visual snapshot / golden diff (intentional)                  | Yes                     | Regenerate goldens, eyeball diff, recommit — stay in current phase. |
-| Visual snapshot / golden diff (unintentional)                | No                      | Back to Phase 2 — real regression.                           |
-| Production build fails when dev build passes (build-variant-specific) | No                      | Back to Phase 2 — fix the import/dep that's debug-only.      |
-| Subagent timeout                                             | Yes                     | Smaller scope (split the task), re-invoke. Don't pad the prompt. |
-| Subagent hallucination caught in verify step                 | No                      | Re-invoke with explicit correction in the prompt. Don't trust narrative. |
+| Failure                                                                         | Stays in current phase? | Recovery                                                                 |
+| ------------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------ |
+| Rate limit (API 429)                                                            | Yes                     | Exponential backoff. Don't restart the phase.                            |
+| Context overflow                                                                | Yes                     | Invoke compaction or split the task. Don't restart.                      |
+| Auth failure                                                                    | No                      | Stop, surface to user. Don't auto-retry.                                 |
+| Network error (transient)                                                       | Yes                     | One retry with backoff, then surface.                                    |
+| Test failure (real bug)                                                         | No                      | Back to Phase 2 (engineer).                                              |
+| Test failure (flake)                                                            | Yes                     | One retry of the test; if still red, treat as real bug.                  |
+| External service blip (CI infrastructure, package registry, container registry) | Yes                     | One retry; if still red, escalate to status page.                        |
+| Lint / type-check finding                                                       | No                      | Back to Phase 2 — but narrow fix, not "fix all lint findings."           |
+| Formatter diff                                                                  | Yes                     | Apply formatter, recommit — stay in current phase.                       |
+| Visual snapshot / golden diff (intentional)                                     | Yes                     | Regenerate goldens, eyeball diff, recommit — stay in current phase.      |
+| Visual snapshot / golden diff (unintentional)                                   | No                      | Back to Phase 2 — real regression.                                       |
+| Production build fails when dev build passes (build-variant-specific)           | No                      | Back to Phase 2 — fix the import/dep that's debug-only.                  |
+| Subagent timeout                                                                | Yes                     | Smaller scope (split the task), re-invoke. Don't pad the prompt.         |
+| Subagent hallucination caught in verify step                                    | No                      | Re-invoke with explicit correction in the prompt. Don't trust narrative. |
 
 The principle: a recovery strategy that retries indiscriminately accumulates state corruption; a strategy that always restarts the whole phase wastes cycles on transient noise. Each error class gets its own path inside the state machine, not an outer try-catch.
 
 ## §4B. Delivery Workflow (the layer that wraps the four hats)
 
-§4's four hats are the *execution* loop for one change. The *delivery* layer decides which changes, in what order, at what risk, and keeps the team flowing. Two roles own it; neither writes code.
+§4's four hats are the _execution_ loop for one change. The _delivery_ layer decides which changes, in what order, at what risk, and keeps the team flowing. Two roles own it; neither writes code.
 
-- **`technical-program-manager`** — owns the *what / why / when / risk*. Turns a goal into a scoped, sequenced, dependency- and risk-managed plan; prioritizes the backlog (RICE/WSJF/MoSCoW); runs change control; produces stakeholder/status comms. Frames product options and recommends — does not decide unilaterally.
-- **`scrum-master`** — owns the *flow*. Runs the cadence (planning, daily, refinement, review, retro), enforces Definition of Ready/Done, tracks flow metrics, drives impediments out, guards team health. Orders work *within* a sprint; does not set priority.
+- **`technical-program-manager`** — owns the _what / why / when / risk_. Turns a goal into a scoped, sequenced, dependency- and risk-managed plan; prioritizes the backlog (RICE/WSJF/MoSCoW); runs change control; produces stakeholder/status comms. Frames product options and recommends — does not decide unilaterally.
+- **`scrum-master`** — owns the _flow_. Runs the cadence (planning, daily, refinement, review, retro), enforces Definition of Ready/Done, tracks flow metrics, drives impediments out, guards team health. Orders work _within_ a sprint; does not set priority.
 
 **The loop, end to end:**
+
 1. `technical-program-manager` — frame outcome + scope (in/out) + sequence + dependencies + RAID. Output: a delivery plan.
 2. (UI work) `product-designer` — spec the experience, IA, states, and accessibility; **Claude Design** produces the visuals; hand the interaction contract to build.
 3. `scrum-master` — capacity-plan the next increment; admit only items that meet Definition of Ready.

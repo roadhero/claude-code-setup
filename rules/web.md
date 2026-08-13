@@ -107,7 +107,7 @@ Pick a concurrency model deliberately (threads + locks, async/await, actors, CSP
 
 See §12 for language-family-specific notes.
 
-------
+---
 
 ## 12. Concurrency Patterns
 
@@ -142,7 +142,7 @@ Beyond what §5.8 covers, language-family-specific notes:
 - **Idempotency keys** for write operations that might be retried. Store request_id → result; replay returns the original result without re-executing.
 - **Test the cancellation contract.** Tests that pass without exercising cancellation say nothing about behavior under load.
 
-------
+---
 
 ## 6. Release Engineering
 
@@ -195,7 +195,7 @@ Release bodies are written for humans (users read these; engineers paste them in
 
 Plain English, no commit SHAs in the body, no naked ticket numbers, no emojis (unless the project's tone established them). **Per §2: no mention of AI tools, LLMs, or specific assistants anywhere in release notes** — no footers, no "AI-assisted" tags, no "thanks to Claude" lines, no mention in highlights or behind-the-scenes sections. Release notes are about what shipped to users; the toolchain that produced it is not relevant content.
 
-------
+---
 
 ## 7. Quality Gate (local + CI)
 
@@ -273,7 +273,7 @@ Per release, run a smoke checklist on the production artifact:
 5. Verify any background jobs / scheduled tasks start.
 6. If anything fails: **do not** silently re-add wholesale debug-mode flags or "compatibility shims." File a bug per failing item, narrow the fix to the minimum reproducer, re-run the full smoke on the next RC.
 
-------
+---
 
 ## 8. Test Coverage Policy
 
@@ -281,12 +281,12 @@ Per release, run a smoke checklist on the production artifact:
 
 Every test you write fits into exactly one of these. Pick by what you want to verify, not by where it's easiest to put.
 
-| Surface                     | Verifies                                                     | Speed              | Where it runs                                          |
-| --------------------------- | ------------------------------------------------------------ | ------------------ | ------------------------------------------------------ |
-| **Unit**                    | Pure functions, state machines, business-logic primitives. No I/O, no real dependencies. | <1s per test       | Every PR                                               |
+| Surface                     | Verifies                                                                                                                                                    | Speed              | Where it runs                                          |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------------------------------------------------------ |
+| **Unit**                    | Pure functions, state machines, business-logic primitives. No I/O, no real dependencies.                                                                    | <1s per test       | Every PR                                               |
 | **Integration**             | Component-to-component boundaries with real dependencies (real DB in Docker, real cache, real message broker). The "does the click actually persist" layer. | Seconds-to-minutes | Every PR (with testcontainers / ephemeral env)         |
-| **End-to-end**              | Full stack from user surface to data store, in a production-like environment. | Minutes            | Every PR for critical paths; nightly for the long tail |
-| **Property / fuzz / chaos** | The unknown-unknown layer. Property-based testing (Hypothesis, fast-check, proptest, quickcheck), fuzz testing, chaos engineering. | Open-ended         | Continuous, in dedicated jobs                          |
+| **End-to-end**              | Full stack from user surface to data store, in a production-like environment.                                                                               | Minutes            | Every PR for critical paths; nightly for the long tail |
+| **Property / fuzz / chaos** | The unknown-unknown layer. Property-based testing (Hypothesis, fast-check, proptest, quickcheck), fuzz testing, chaos engineering.                          | Open-ended         | Continuous, in dedicated jobs                          |
 
 ### 8.2 Coverage thresholds (set deliberately)
 
@@ -319,7 +319,7 @@ The fix is a small project-specific helper that waits for the actual ready signa
 
 Define the helper once, use it everywhere first-render assertions happen. Banish raw `sleep()` from tests.
 
-------
+---
 
 ## 13. Compliance & Distribution Watchlist
 
@@ -368,5 +368,4 @@ The biggest source of "release blocked at submission / deploy" surprises is plat
 - **Stdout vs stderr.** Stdout is for output that pipes to the next command; stderr is for human-readable status / errors. Don't mix.
 - **`--help` / `--version` / `--json` / `--no-color`.** Standard flags; users expect them.
 
-------
-
+---

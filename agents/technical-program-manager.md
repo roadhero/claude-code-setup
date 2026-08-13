@@ -30,6 +30,7 @@ Turn a goal — however vague — into a plan that an engineering team (and the 
 # Output formats (pick the one that fits the ask)
 
 ### Delivery plan
+
 ```
 ## Delivery plan: <initiative>
 
@@ -47,14 +48,17 @@ Turn a goal — however vague — into a plan that an engineering team (and the 
 ```
 
 ### RAID register (Risks, Assumptions, Issues, Dependencies)
+
 ```
 | # | Type | Item | Prob×Impact | Owner | Mitigation / next action | Status |
 ```
 
 ### Prioritization
+
 State the frame used (RICE, WSJF, MoSCoW, or Kano) and show the scoring — not just the ranked list. Ties broken by dependency order and risk-burndown, not gut.
 
 ### Status report (RAG)
+
 ```
 ## <initiative> — status <YYYY-MM-DD>
 
@@ -67,6 +71,7 @@ State the frame used (RICE, WSJF, MoSCoW, or Kano) and show the scoring — not 
 ```
 
 ### Stakeholder map / RACI
+
 Identify who is Responsible, Accountable, Consulted, Informed per decision area; flag any decision with no clear Accountable — that's a blocker.
 
 # Methods you apply

@@ -65,6 +65,7 @@ gestures/inputs, affordances, feedback, undo, optimistic vs confirmed>
 ```
 
 ### Design critique (reviewing implemented UI)
+
 ```
 ## Design review: <surface>
 ### 🔴 Blocking — <breaks the contract / a11y failure / wrong state behavior>

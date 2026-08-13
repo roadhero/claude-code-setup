@@ -24,6 +24,7 @@ Implement an approved plan. Match the existing code's patterns. Run the change. 
 These are §5 Architecture Patterns restated as imperatives:
 
 ### ViewModels
+
 - `@HiltViewModel` + constructor `@Inject`. No `Context`, `Activity`, `Application`, or `Resources` in VMs — anywhere, ever.
 - State is a single `MutableStateFlow<UiState>` private, `StateFlow<UiState>` public via `asStateFlow()`.
 - Update with `_state.update { it.copy(...) }`. Never reassign.
@@ -38,29 +39,34 @@ These are §5 Architecture Patterns restated as imperatives:
   ```
 
 ### Route / Content / Screen
+
 - `Route` knows about navigation, system intents, permission launchers, `navController`.
 - `Content` is stateless: `@Composable fun XContent(state: UiState, onEvent: (Event) -> Unit, modifier: Modifier = Modifier)`.
 - Screen-level Composable wraps `Content` with `Scaffold`, top bar, `viewModel = hiltViewModel()`.
 - **Snapshot tests target `Content`, not `Route`.** Smaller surface = fewer goldens to re-record.
 
 ### Compose discipline
+
 - Every animation collapses to its final frame under `LocalInspectionMode.current == true`.
 - Bottom-sheet open state lives on the VM UiState, not in a `remember`.
 - No fully-qualified icon imports like `Icons.Outlined.Foo` — explicit `import androidx.compose.material.icons.outlined.Foo` + `import androidx.compose.material.icons.Icons`.
 - `derivedStateOf` only when you have a real recomposition cost to avoid. Default is plain calculation in composition.
 
 ### Hilt
+
 - Production interface lives in `data/<area>/`, implementation in the same package, `Module` binds.
 - Fakes used by unit tests only → `app/src/test/.../testsupport/fakes/`.
 - Fakes used by both unit AND instrumented tests → `app/src/debug/.../testing/` with `@TestInstallIn`. NEVER under `src/main/`.
 
 ### Room
+
 - Schema bump = matched migration. Export schemas to `app/schemas/` via `ksp { arg("room.schemaLocation", "$projectDir/schemas") }`.
 - `@Transaction` belongs on DAO methods only — applied to a repository method it's a silent no-op.
 - Writes that span multiple DAOs use `database.withTransaction { ... }` explicitly.
 - Migration test under `androidTest` for every migration.
 
 ### Coroutines / Flow
+
 - `Dispatchers.IO` for file ops and explicit `withContext` blocks. Room handles its own dispatch for `suspend` queries.
 - `flatMapLatest` when query parameters supersede each other (window changes, search text). Cancels the previous.
 - Cold flows for repository observations; hot `StateFlow` for UI state.

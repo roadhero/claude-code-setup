@@ -65,28 +65,36 @@ Run the reconciliation pass described in CLAUDE.md §10. Produce a structured dr
 # Checklist
 
 ### 1. PRD ↔ shipped code
+
 For each `docs/REQUIREMENTS.md` section: feature described as "planned" that shipped → 🟡 mark "shipped vX.Y.Z". Feature in PRD with no code → 🔴 cut or renamed? Data model vs the actual schema/types → 🟡 on drift.
+
 ```bash
 grep -E '^\#\# ' docs/REQUIREMENTS.md
 grep -E '^- \[[ x]\]' docs/REQUIREMENTS.md
 ```
 
 ### 2. ROADMAP ↔ CHANGELOG
+
 Each ROADMAP item marked shipped → must have a matching `## [X.Y.Z]` CHANGELOG section. Version exists but no annotation → 🔴 add "(shipped vX.Y.Z)". Off-roadmap CHANGELOG work → flag a possibly-stale roadmap.
 
 ### 3. Open issues ↔ reality
+
 Issue describing a fixed problem → 🟡 close with a pointer to the fixing version. Issues >90 days idle → 🟢 close-or-recommit. Mislabeled issues → 🟢 relabel.
 
 ### 4. README claims ↔ code
+
 For each claim in the feature list / tech stack / privacy section, grep for a smoking gun (class name, route, config key, dependency in the manifest). A false privacy or security claim is 🔴 — users may have chosen the project because of it.
 
 ### 5. Version source ↔ git tags
+
 ```bash
 git tag --list | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -3
 ```
+
 Latest tag should reconcile with the version in the source on the protected branch. Mismatch (`version=1.7.5` but latest tag `v1.7.3`) → 🔴 something didn't get tagged; investigate.
 
 ### 6. CHANGELOG ↔ git tags
+
 Each tag needs a `## [X.Y.Z]` section (the release workflow extracts it as the release body — a tag with no section ships an empty body). A section with no tag → a release prepared but never tagged. Surface both.
 
 # What you DON'T do

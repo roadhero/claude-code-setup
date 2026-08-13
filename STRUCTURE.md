@@ -29,6 +29,7 @@ Per-repo CLAUDE.md (§19 only; inherits spine + whichever rule pack your files p
 ```
 
 ## Install (Mac)
+
 ```bash
 git clone https://github.com/roadhero/claude-code-setup.git && cd claude-code-setup
 mkdir -p ~/.claude/rules ~/.claude/agents ~/.claude/hooks ~/.claude/skills
@@ -49,7 +50,9 @@ cp agents-android/*.md /path/to/android-repo/.claude/agents/     # or agents-ios
 ```
 
 ## The two settings files — how they work
+
 Claude Code reads **`settings.json`** only. `settings2.json` is the compute profile, kept beside it to **swap in** when you do C++/CUDA/Python work on the Mac:
+
 ```bash
 cd ~/.claude
 cp settings.json settings.web.json     # stash the active one once
@@ -58,6 +61,7 @@ cp settings2.json settings.json
 # switch back:
 cp settings.web.json settings.json
 ```
+
 Both reference the **same** `guard-commit.sh` + `format.sh`; they differ only in the permission allowlist (web/mobile tools vs compiler/CUDA/profiler tools) and the subagent-model env.
 
 > **Alternative (simpler):** the two allowlists don't conflict — you can merge them into one `settings.json` and never swap. Permissions are just an allowlist; granting compiler tools alongside mobile tools is harmless.
@@ -65,23 +69,26 @@ Both reference the **same** `guard-commit.sh` + `format.sh`; they differ only in
 > **⚠ Subagent model:** `settings2.json` pins `CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-4-8`. If your main model is higher-tier than Opus, this line **downgrades** subagents to Opus. Delete the `env` block if you want subagents to inherit your main model. It's there only because compute work is rule-heavy and a deterministic pin can be worth it.
 
 ## Hook paths
+
 Both settings files reference the hooks via `$HOME/.claude/hooks/...`, which the shell expands to your home directory, so they work for any user without editing. Verify with `/hooks` inside Claude Code. Prerequisites: `jq` is **required by `guard-commit.sh`** — without it, git commit/push are blocked (fail-closed); install it first with `brew install jq` (macOS) / `sudo apt-get install jq`. The format hook additionally uses `prettier`/`ktlint`/`swift-format`/`ruff`/`clang-format` per stack, each a silent no-op if absent.
 
 ## Extension points (spine §18)
 
 Four no-code extensions cover almost everything before you'd fork the binary:
 
-| Extension       | Format                                            | Location                            | Use case                                                     |
-| --------------- | ------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------ |
-| **Subagents**   | Markdown with YAML frontmatter                    | `.claude/agents/*.md`               | New personas (e.g. `security-reviewer`, `performance-engineer`, `db-migration-specialist`) |
+| Extension       | Format                                            | Location                            | Use case                                                                                           |
+| --------------- | ------------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------- |
+| **Subagents**   | Markdown with YAML frontmatter                    | `.claude/agents/*.md`               | New personas (e.g. `security-reviewer`, `performance-engineer`, `db-migration-specialist`)         |
 | **Skills**      | Markdown with YAML frontmatter + supporting files | `.claude/skills/<name>/SKILL.md`    | Reusable workflows (e.g. `release-prep`, `add-feature-flag`, `db-migration`, `dependency-upgrade`) |
-| **Hooks**       | Shell scripts                                     | `.claude/hooks/*.sh`                | Pre/post-tool-call validation, audit logging, custom permission gates |
-| **MCP servers** | Protocol-based (any language)                     | Configured in user/project settings | Tool integrations (issue tracker, error tracking service, package registry, custom databases) |
+| **Hooks**       | Shell scripts                                     | `.claude/hooks/*.sh`                | Pre/post-tool-call validation, audit logging, custom permission gates                              |
+| **MCP servers** | Protocol-based (any language)                     | Configured in user/project settings | Tool integrations (issue tracker, error tracking service, package registry, custom databases)      |
 
 If a use case fits none of these, report the gap upstream rather than working around it — forking the binary trades extensibility for an ownership burden, and every Claude Code release becomes a merge conflict.
 
 ## Rule pack loading model
+
 The four packs install to `~/.claude/rules/` together and each declares a `paths:` glob in its YAML frontmatter. Claude Code loads a pack the first time it reads a file whose path matches (`*.kt`/`*.gradle*` → android.md, `*.swift` → ios.md, `*.ts`/`*.py`/`*.go` → web.md, `*.cpp`/`*.cu`/`CMakeLists.txt` → compute.md). Path-triggered, not stack-detection: nothing scans the repo up front, and a pack that never path-matches in a session never enters context (that is the context saving). It is also lazy — during pure planning, before any source file is read, no pack is loaded; it lands when the architect reads existing source. Verify what loaded with `/memory`. Python is owned solely by web.md; compute.md triggers only on native/CUDA/build files, so a `.py` file never loads two packs. Single-stack eager-load: drop one pack into a repo's own `.claude/rules/` with its `paths:` frontmatter removed — a rules file with no `paths:` loads unconditionally at launch.
 
 ## Agent override model
+
 A repo's `.claude/agents/<name>.md` overrides the user-scope `~/.claude/agents/<name>.md` with the same `name:` field. So dropping the 7 Android agents (canonical names architect/senior-swe/code-reviewer/qa/release-engineer/docs-reconciler/performance-engineer) into an Android repo swaps the generic four-hat chain for Android-brained ones; the other 8 generics still apply. Same pattern for iOS (7). For compute, the pack now ships only 5 overrides — the four-hat chain (architect/senior-swe/code-reviewer/qa) plus performance-engineer — and 8 compute-only specialists, so the other 10 globals fall through unchanged.

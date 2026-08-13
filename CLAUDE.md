@@ -5,7 +5,7 @@
 > **Progressive detail.** This spine is the always-loaded core — guardrails and per-session rules. Longer reference material (full roster tables, the review checklist, the error-recovery table, the PR template, scaling notes) lives under `~/.claude/docs/*.md` and loads on demand; the section stubs below point to it. Keeping the spine lean is deliberate: a bloated always-on file gets ignored.
 > **Cache boundary discipline.** Everything above the `===== CACHE BOUNDARY =====` marker near the end is static across releases and gets prompt-cached. Only §19 Project Context (below the boundary) is per-project; edits there don't invalidate the cached spine.
 
-------
+---
 
 ## 1. Subagent Roster
 
@@ -22,7 +22,7 @@ Full per-agent tables, invoke-when triggers, and the concurrency rationale: `~/.
 
 **Subagents have no memory across invocations.** Pass decisions forward explicitly in the prompt or a written artifact (draft PR description, issue comment, `docs/decisions/` entry).
 
-------
+---
 
 ## 2. Git Rules
 
@@ -39,7 +39,7 @@ Full per-agent tables, invoke-when triggers, and the concurrency rationale: `~/.
 - Branch protection on `main` (or `master` / `trunk`) blocks direct push — always use PR. Never `git push --force` to the protected branch.
 - Squash-merge PRs (single commit per ticket on the protected branch), unless your team has explicitly chosen merge-commits or rebase-merge for traceability reasons.
 
-------
+---
 
 ## 3. Coding Guidelines
 
@@ -50,39 +50,39 @@ Full per-agent tables, invoke-when triggers, and the concurrency rationale: `~/.
 - **3.3 Surgical changes.** Touch only what you must. Don't improve or refactor adjacent code; match existing style even if you'd do it differently; remove only the orphans YOUR change created; mention — don't delete — pre-existing dead code. Every changed line traces directly to the request.
 - **3.4 Goal-driven execution.** Define success criteria, loop until verified ("fix the bug" → write a failing test, then make it pass; "optimize Y" → benchmark before/after and show the delta). State a brief numbered plan for multi-step tasks.
 
-------
+---
 
 ## 4. Workflow: Four Hats
 
 Every non-trivial change goes through four phases, in order — wear all four hats yourself or delegate each to its scoped subagent. **Do not skip phases. Do not combine them.** Each produces an explicit output before the next begins. Full detail — the Phase 3 review checklist and the §4.7 error-recovery-by-class table — in `~/.claude/docs/workflow.md`.
 
 1. **Architect** (read-only): minimal change? existing patterns to match? failure modes (auth, network, concurrency, data loss, partial failure, retry storms)? scope boundaries? → a 3–8 line plan, user-approved. Run this in **plan mode** so the read-only constraint is enforced by the harness, not just intended.
-2. **Engineer:** implement the plan, nothing more. One *purpose* per commit. Run the code; if it doesn't start, fix it before moving on.
+2. **Engineer:** implement the plan, nothing more. One _purpose_ per commit. Run the code; if it doesn't start, fix it before moving on.
 3. **Code Reviewer** (read-only, adversarial): walk the review checklist against the diff as if you didn't write it. Zero-open-comments rule — every issue fixed or explicitly justified before proceeding.
 4. **QA:** run the local quality gate (platform rule §7), the happy path, at least one realistic error case, and a regression check. If a test fails, diagnose the failure class (§4.7) before reacting. Don't push broken code.
 
 **§4.5 Skip rules.** Typo / config-only: skip Phase 1 & 4. `type:chore|docs|qa` that's text-/config-/test-config-only: skip Phases 1, 3, 4 (use judgement — keep all four if there's real surface area). Everything else: all four, every time.
 **§4.6 Solo mode.** No subagents → wear all four hats yourself, in order. Don't fuse Phase 1 into Phase 2; writing the plan down first is what catches the scope creep.
 
-------
+---
 
 ## 4B. Delivery Workflow
 
 The layer that wraps the four hats. `technical-program-manager` owns what / why / when / risk (scope, sequence, dependencies, RAID, prioritization, change control); `scrum-master` owns flow (cadence, Definition of Ready/Done, impediments, team health). Value & priority = TPM; process & flow = scrum-master; execution = the §4 agents. Neither writes code. Full end-to-end loop: `~/.claude/docs/workflow.md`.
 
-------
+---
 
 ## 9. Stacked PR Workflow
 
 Shipping multiple related PRs in a session: local feature branch per ticket; **don't push the version-bump + CHANGELOG combo until the prior PR merges** (else both touch the same version lines and the second hits a rebase conflict); when it merges, `git checkout <protected> && git pull --ff-only`, then `git rebase <protected>` the next branch **locally** rather than relying on platform conflict-resolution (squash-merge SHAs don't match local commits). Full rebase discipline + the stash-and-checkout pitfall: `~/.claude/docs/git-workflows.md`.
 
-------
+---
 
 ## 10. Reconciliation Cadence
 
 Every 3–5 merged PRs, run a reconciliation pass before queueing the next feature — delegate to `docs-reconciler`. It checks spec ↔ code, roadmap ↔ shipped versions, open issues ↔ reality, CHANGELOG ↔ tags, README ↔ code. Default fallback when no ticket is queued: **reconciliation + ticket hygiene, not speculative refactors.** Full five-step pass: `~/.claude/docs/reconciliation.md`.
 
-------
+---
 
 ## 11. Secrets & Credentials
 
@@ -95,7 +95,7 @@ Every 3–5 merged PRs, run a reconciliation pass before queueing the next featu
 
 Per-project secrets inventory template (§11.1): `~/.claude/docs/SECRETS.md`.
 
-------
+---
 
 ## 14. Anti-Patterns (learned-the-hard-way)
 
@@ -119,7 +119,7 @@ Per-project secrets inventory template (§11.1): `~/.claude/docs/SECRETS.md`.
 - **Don't add TODOs without ticket references.** `// TODO(#123): handle empty input` is acceptable; `// TODO: fix this` is debt with no owner.
 - **Don't wholesale disable security features** ("temporarily" turn off CSRF, "just for this endpoint" skip auth). Temporary becomes permanent. Add the exception with explicit justification or design around the constraint.
 
-------
+---
 
 ## 15. Memory & Continuity (when working as an AI agent)
 
@@ -129,36 +129,35 @@ Per-project secrets inventory template (§11.1): `~/.claude/docs/SECRETS.md`.
 - **Don't trust your own memory as ground truth** — grep / `Read` to verify before recommending from it.
 - **Subagents have no memory** — pass decisions forward explicitly; don't say "as we decided earlier."
 
-------
+---
 
 ## 16. PR Description Template
 
 Per §2, no mention of AI tools / LLMs / assistants anywhere in the PR (description, test plan, comments). Fill-in template: `~/.claude/docs/pr-template.md`.
 
-------
+---
 
 ## 17. Scaling beyond solo
 
 When a second engineer (human or AI) joins, four things need to scale: **state across sessions** (`docs/decisions/` ADRs, `WIP.md` handoffs, and separate per-user vs per-project memory tiers), **permissions** (committed `settings.json` for what everyone needs vs gitignored `settings.local.json` for personal pre-approvals; never commit permission-bypass aliases), **parallelism** (read-only subagents run concurrently; mutating ones coordinate via PR — one per branch), and the **shared subagent library** (committed in `.claude/agents/`; layer personal agents in `~/.claude/agents/`). Full detail: `~/.claude/docs/scaling.md`.
 
-------
+---
 
 ## 18. Extension Points
 
 Four no-code extensions cover almost everything before you'd fork the binary: **subagents** (`.claude/agents/*.md`), **skills** (`.claude/skills/<name>/SKILL.md`), **hooks** (`.claude/hooks/*.sh`), and **MCP servers** (configured in settings). If a use case fits none of them, the architecture has a gap worth reporting upstream rather than working around. Format table + examples: `STRUCTURE.md`.
 
-------
+---
 
 <!-- ===== CACHE BOUNDARY ===== --> <!-- Everything above this line is static across releases. Edits invalidate the     entire prompt cache for this file. Make changes to workflow rules, patterns,     and anti-patterns above sparingly.      Everything below this line is per-project and edited frequently. Cache     invalidations are scoped to the bottom partition only. Put dynamic content     here: current version, stack details, project-specific overrides, links to     live spec/roadmap files, etc.      If you find yourself wanting to put project-specific content above this     boundary, ask whether it's truly project-specific (then below) or actually     a general pattern worth promoting (then above, with care). -->
 
-
 ## 19. Project Context
 
-> **Dual role of this section.** This file auto-loads as the project instructions when you work *in this repo*, so §19 below describes **this repo**. When you install the spine as the user-global `~/.claude/CLAUDE.md`, blank §19 — per §17.1 user-global memory carries no single-project context; each of your own repos gets its own root `CLAUDE.md` from `templates/`.
+> **Dual role of this section.** This file auto-loads as the project instructions when you work _in this repo_, so §19 below describes **this repo**. When you install the spine as the user-global `~/.claude/CLAUDE.md`, blank §19 — per §17.1 user-global memory carries no single-project context; each of your own repos gets its own root `CLAUDE.md` from `templates/`.
 
 ### 19.1 What is this project?
 
-- **One-paragraph description:** This repository *is* a distributed Claude Code configuration, not an application: a stack-agnostic engineering spine (this `CLAUDE.md`, §1–18), platform rule packs (`rules/`), a 42-agent roster across four stacks (`agents/`, `agents-android/`, `agents-ios/`, `agents-compute/`), two hooks — a commit guard and a format-on-save hook (`hooks/`) — and a repo-scaffolder skill (`skills/new-repo/`). Users copy it into `~/.claude/` and per-repo. The product is the configuration's correctness and internal consistency; nothing is compiled or deployed. Public, MIT: github.com/roadhero/claude-code-setup.
+- **One-paragraph description:** This repository _is_ a distributed Claude Code configuration, not an application: a stack-agnostic engineering spine (this `CLAUDE.md`, §1–18), platform rule packs (`rules/`), a 42-agent roster across four stacks (`agents/`, `agents-android/`, `agents-ios/`, `agents-compute/`), two hooks — a commit guard and a format-on-save hook (`hooks/`) — and a repo-scaffolder skill (`skills/new-repo/`). Users copy it into `~/.claude/` and per-repo. The product is the configuration's correctness and internal consistency; nothing is compiled or deployed. Public, MIT: github.com/roadhero/claude-code-setup.
 
 ### 19.2 Stack
 
@@ -207,7 +206,7 @@ Requires `shellcheck` and `jq` (the hooks need `jq` at runtime too) — `brew in
 - Platform rule-pack path-triggering (`rules/{web,android,ios,compute}.md`) never fires in this repo — it has no matching source files. Expected.
 - No CI yet — candidate follow-up: a GitHub Action running §19.3 on PR.
 
-------
+---
 
 ## Closing thought
 

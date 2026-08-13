@@ -55,7 +55,7 @@ Read the git diff. Walk it against the checklists below. Produce a structured re
 
 1. **Trace.** Does this line trace to the task? If not, suggest reverting it.
 2. **Hardcodes.** Magic numbers, magic strings, magic URLs, magic IDs — should they be config / env / constant?
-3. **Error handling.** Missing handling for *realistic* failure cases. Not hypothetical ones — real ones: network down, disk full, permission denied, dependency unavailable, malformed input from an untrusted source.
+3. **Error handling.** Missing handling for _realistic_ failure cases. Not hypothetical ones — real ones: network down, disk full, permission denied, dependency unavailable, malformed input from an untrusted source.
 4. **Security.**
    - Unsanitized user input reaching SQL, shell, template, regex, deserializer.
    - Output sanitization (XSS, log injection, command injection).
@@ -92,29 +92,30 @@ Read the git diff. Walk it against the checklists below. Produce a structured re
 
 # Universal red flags (grep these in the diff)
 
-| Pattern | Why it's a red flag |
-|---|---|
-| `TODO` without ticket reference | Permanent debt with no owner |
-| `FIXME` / `HACK` / `XXX` | Unfinished work, mark it explicitly |
-| `eval(` (any language) | Code execution from untrusted source |
-| `Math.random()` / `random.random()` / `rand::random()` in security context | Use cryptographic RNG |
-| `MD5` / `SHA1` / `DES` / `ECB` for new crypto code | Broken or weak primitives |
-| `--no-verify` in shell scripts / hooks | Bypasses pre-commit checks |
-| `--force` push patterns in CI | Destroys history |
-| Hardcoded URL / IP / hostname | Should be configuration |
-| Hardcoded `Authorization:` header | Secret in code |
-| `localhost` in production-bound code | Won't work outside dev |
-| `127.0.0.1` in production-bound code | Same |
-| Broad `catch` / `except` / `rescue` without specific type | Swallows real bugs |
-| `goto fail` style early-return that skips cleanup | Resource leak risk |
-| `unsafe` / `transmute` / `as` casting between integer types (Rust) | Memory or correctness risk; review carefully |
-| Sleep / busy-wait in tests instead of polling for readiness | Flake source |
-| New env var with no default and no startup-time check | Silent misconfiguration in prod |
-| `git commit -am` patterns in automation | Commits unintended files |
+| Pattern                                                                    | Why it's a red flag                          |
+| -------------------------------------------------------------------------- | -------------------------------------------- |
+| `TODO` without ticket reference                                            | Permanent debt with no owner                 |
+| `FIXME` / `HACK` / `XXX`                                                   | Unfinished work, mark it explicitly          |
+| `eval(` (any language)                                                     | Code execution from untrusted source         |
+| `Math.random()` / `random.random()` / `rand::random()` in security context | Use cryptographic RNG                        |
+| `MD5` / `SHA1` / `DES` / `ECB` for new crypto code                         | Broken or weak primitives                    |
+| `--no-verify` in shell scripts / hooks                                     | Bypasses pre-commit checks                   |
+| `--force` push patterns in CI                                              | Destroys history                             |
+| Hardcoded URL / IP / hostname                                              | Should be configuration                      |
+| Hardcoded `Authorization:` header                                          | Secret in code                               |
+| `localhost` in production-bound code                                       | Won't work outside dev                       |
+| `127.0.0.1` in production-bound code                                       | Same                                         |
+| Broad `catch` / `except` / `rescue` without specific type                  | Swallows real bugs                           |
+| `goto fail` style early-return that skips cleanup                          | Resource leak risk                           |
+| `unsafe` / `transmute` / `as` casting between integer types (Rust)         | Memory or correctness risk; review carefully |
+| Sleep / busy-wait in tests instead of polling for readiness                | Flake source                                 |
+| New env var with no default and no startup-time check                      | Silent misconfiguration in prod              |
+| `git commit -am` patterns in automation                                    | Commits unintended files                     |
 
 # Language-family-specific red flags
 
 ### JavaScript / TypeScript
+
 - `any` type added (or its retreat from a previously-typed value) without justification
 - `// @ts-ignore` / `// @ts-expect-error` without comment explaining what and why
 - `null` and `undefined` conflated in new code
@@ -126,6 +127,7 @@ Read the git diff. Walk it against the checklists below. Produce a structured re
 - `new Promise((resolve, reject) => ...)` wrapping an already-async API — usually wrong
 
 ### Python
+
 - `except:` (bare) or `except Exception:` outside request boundaries
 - Mutable default argument (`def f(x=[]):`)
 - `pickle` / `cloudpickle` on untrusted input
@@ -136,6 +138,7 @@ Read the git diff. Walk it against the checklists below. Produce a structured re
 - New code without type hints when the rest of the file has them
 
 ### Go
+
 - `_ = err` (error ignored)
 - `panic` in library code (return error instead)
 - Missing `defer` for resource cleanup
@@ -145,6 +148,7 @@ Read the git diff. Walk it against the checklists below. Produce a structured re
 - `fmt.Errorf("%v", err)` instead of `fmt.Errorf("...: %w", err)` (loses wrapping)
 
 ### Rust
+
 - `.unwrap()` / `.expect()` in non-test, non-`main` code without proof of infallibility
 - `unsafe` block without `// SAFETY:` comment
 - `as` integer cast where `try_into` / `TryFrom` would catch overflow
@@ -153,6 +157,7 @@ Read the git diff. Walk it against the checklists below. Produce a structured re
 - New `Box<dyn Error>` in library code instead of a `thiserror` type
 
 ### Kotlin / Java
+
 - `!!` (Kotlin non-null assertion) without proof
 - `runBlocking` in production code (almost always wrong outside tests / `main`)
 - Catching `Exception` or `Throwable` outside boundaries
@@ -161,6 +166,7 @@ Read the git diff. Walk it against the checklists below. Produce a structured re
 - Generic `try`/`finally` missing for `AutoCloseable`
 
 ### C / C++
+
 - Unchecked `malloc` / `calloc` / `new` return value
 - `strcpy` / `strcat` / `sprintf` / `gets` (use `n` variants)
 - Integer overflow on size arithmetic before `malloc`
@@ -169,6 +175,7 @@ Read the git diff. Walk it against the checklists below. Produce a structured re
 - Use-after-free patterns (return of stack pointer, etc.)
 
 ### Shell / Bash
+
 - Unquoted variable expansion (`$x` instead of `"$x"`)
 - `cd $foo` instead of `cd "$foo"` or `cd "$foo" || exit`
 - Missing `set -euo pipefail` at top of script
@@ -176,6 +183,7 @@ Read the git diff. Walk it against the checklists below. Produce a structured re
 - Backticks instead of `$(...)`
 
 ### SQL
+
 - String concatenation to build queries with user input (SQL injection)
 - `SELECT *` in production code
 - Missing index for the new query's `WHERE` columns

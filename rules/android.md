@@ -133,6 +133,7 @@ defaultConfig {
 ```
 
 Either way:
+
 - Bump these BEFORE tagging.
 - The release workflow must verify tag-vs-versionName parity (mismatch fails the build).
 - **Don't** inline literal versions in multiple places — single source.
@@ -220,6 +221,7 @@ Source list lives in `docs/COPY_REVIEW.md`. The CI grep guard in `build.yml` enf
 Source-text tests + the CI release-compile gate catch most cases, but only a real device run catches classes stripped at runtime that the source-text rules missed.
 
 Per release, run `docs/release-smoke-checklist.md` on a target device:
+
 1. `./gradlew :app:assembleRelease` → signed APK.
 2. `adb install -r` on the target device.
 3. Cold launch — no `NoClassDefFoundError` / `InstantiationException` / DI crash in logcat.
@@ -235,12 +237,12 @@ Per release, run `docs/release-smoke-checklist.md` on a target device:
 
 Every Android test you write fits into exactly one of these. Pick by what you want to verify, not by where it's easiest to put.
 
-| Surface | Verifies | Lives in | Runs |
-|---|---|---|---|
-| **Unit** | ViewModel state machines, use-case logic, mappers, scheduler arithmetic. Pure JVM. No Compose. | `app/src/test/java/.../` | Every PR |
-| **Snapshot regression** | UI doesn't visually regress. Renders Composables to PNGs per device qualifier; diffs against committed goldens. | `app/src/test/java/.../snapshot/` (sources) + `app/src/test/snapshots/` (goldens) | Every PR |
-| **Instrumented** | DAO round-trips, Room migrations, Compose UI tests with the real Hilt graph + in-memory Room. The "does the click actually persist" layer. | `app/src/androidTest/java/.../` | Every push to `release/**`, plus on-demand |
-| **Robo / automated crawl** | The unknown-unknown layer. Crawler walks every reachable UI path and reports anything it crashes, hangs, or cannot navigate. | No source (FTL-driven) | Every push to `release/**` |
+| Surface                    | Verifies                                                                                                                                   | Lives in                                                                          | Runs                                       |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- | ------------------------------------------ |
+| **Unit**                   | ViewModel state machines, use-case logic, mappers, scheduler arithmetic. Pure JVM. No Compose.                                             | `app/src/test/java/.../`                                                          | Every PR                                   |
+| **Snapshot regression**    | UI doesn't visually regress. Renders Composables to PNGs per device qualifier; diffs against committed goldens.                            | `app/src/test/java/.../snapshot/` (sources) + `app/src/test/snapshots/` (goldens) | Every PR                                   |
+| **Instrumented**           | DAO round-trips, Room migrations, Compose UI tests with the real Hilt graph + in-memory Room. The "does the click actually persist" layer. | `app/src/androidTest/java/.../`                                                   | Every push to `release/**`, plus on-demand |
+| **Robo / automated crawl** | The unknown-unknown layer. Crawler walks every reachable UI path and reports anything it crashes, hangs, or cannot navigate.               | No source (FTL-driven)                                                            | Every push to `release/**`                 |
 
 ### 8.2 Coverage thresholds (set deliberately)
 
@@ -347,14 +349,14 @@ Play policy is the single biggest source of "release blocked at submission" surp
 
 ---
 
-
-------
+---
 
 ## Android workflow addenda
 
 > Extend the universal four-hat workflow (CLAUDE.md §4), secrets (§11), and anti-patterns (§14). These apply on top of the universal rules when working in an Android codebase.
 
 ### Review-checklist additions — extends §4 Phase 3 (Code Reviewer)
+
 - Failure-mode lens for Phase 1: also consider lifecycle race, R8 stripping, Play policy.
 - Security lens: path traversal, intent redirection, exported component, implicit intent for sensitive data.
 - [ ] Composables: do they short-circuit under `LocalInspectionMode` so snapshots stay byte-stable?
@@ -365,29 +367,32 @@ Play policy is the single biggest source of "release blocked at submission" surp
 - [ ] Tests: every new logic branch covered? Snapshot goldens regenerated and reviewed by eye if UI changed?
 
 ### Error-recovery additions — extends §4.7
-| Failure | Stays in current phase? | Recovery |
-|---|---|---|
-| FTL infra blip | Yes | One retry (`--num-flaky-test-attempts=1` covers this in CI). |
-| Lint / detekt finding | No | Back to Phase 2 — but narrow fix, not "fix all detekt findings". |
-| Snapshot diff after intentional UI change | Yes | Regenerate goldens, eyeball diff, recommit — stay in current phase. |
-| Snapshot diff after unintentional change | No | Back to Phase 2 — real regression. |
-| R8 release-build crash post-merge | No | Back to Phase 2 — add narrow keep rule, NOT wholesale `-keep class **`. |
+
+| Failure                                   | Stays in current phase? | Recovery                                                                |
+| ----------------------------------------- | ----------------------- | ----------------------------------------------------------------------- |
+| FTL infra blip                            | Yes                     | One retry (`--num-flaky-test-attempts=1` covers this in CI).            |
+| Lint / detekt finding                     | No                      | Back to Phase 2 — but narrow fix, not "fix all detekt findings".        |
+| Snapshot diff after intentional UI change | Yes                     | Regenerate goldens, eyeball diff, recommit — stay in current phase.     |
+| Snapshot diff after unintentional change  | No                      | Back to Phase 2 — real regression.                                      |
+| R8 release-build crash post-merge         | No                      | Back to Phase 2 — add narrow keep rule, NOT wholesale `-keep class **`. |
 
 ### Secrets inventory (Android) — extends §11
-| Secret | Used by | Purpose | Rotation cadence |
-|---|---|---|---|
-| `UPLOAD_KEYSTORE_BASE64` | `release.yml` | Base64-encoded `.jks` upload keystore for signing release APKs | Never (rotation breaks Play Console signing identity) |
-| `KEYSTORE_PASSWORD` | `release.yml` | Password for the upload keystore | When team membership changes |
-| `KEY_ALIAS` | `release.yml` | Key alias inside the keystore | Never |
-| `KEY_PASSWORD` | `release.yml` | Password for the signing key | When team membership changes |
-| `FIREBASE_SERVICE_ACCOUNT` | `connected-tests.yml`, `robo-test.yml` | GCP service account JSON for FTL access | Every 90 days, or on team-change |
-| `PLAY_PUBLISHER_JSON` | `release.yml` (if auto-uploading to Play) | Play Console API service account | Every 90 days |
-| `CRASHLYTICS_API_TOKEN` | `release.yml` (if applicable) | Crashlytics mapping upload | When team membership changes |
-| `SLACK_WEBHOOK_URL` | `release.yml`, `build.yml` (if applicable) | Release notification | When team membership changes |
+
+| Secret                     | Used by                                    | Purpose                                                        | Rotation cadence                                      |
+| -------------------------- | ------------------------------------------ | -------------------------------------------------------------- | ----------------------------------------------------- |
+| `UPLOAD_KEYSTORE_BASE64`   | `release.yml`                              | Base64-encoded `.jks` upload keystore for signing release APKs | Never (rotation breaks Play Console signing identity) |
+| `KEYSTORE_PASSWORD`        | `release.yml`                              | Password for the upload keystore                               | When team membership changes                          |
+| `KEY_ALIAS`                | `release.yml`                              | Key alias inside the keystore                                  | Never                                                 |
+| `KEY_PASSWORD`             | `release.yml`                              | Password for the signing key                                   | When team membership changes                          |
+| `FIREBASE_SERVICE_ACCOUNT` | `connected-tests.yml`, `robo-test.yml`     | GCP service account JSON for FTL access                        | Every 90 days, or on team-change                      |
+| `PLAY_PUBLISHER_JSON`      | `release.yml` (if auto-uploading to Play)  | Play Console API service account                               | Every 90 days                                         |
+| `CRASHLYTICS_API_TOKEN`    | `release.yml` (if applicable)              | Crashlytics mapping upload                                     | When team membership changes                          |
+| `SLACK_WEBHOOK_URL`        | `release.yml`, `build.yml` (if applicable) | Release notification                                           | When team membership changes                          |
 
 Maintain this table in `docs/SECRETS.md` and grep CI logs for any secret name that's been removed.
 
 ### Anti-patterns (Android) — extends §14
+
 - **Don't snapshot the full Route.** Snapshot the `Content`. Route brings the NavHost + Scaffold + ViewModel collection, all of which generate noise across Compose updates.
 - **Don't put bottom-sheet open state in a `remember` inside the Composable.** A config change rotates the device and the sheet snaps closed. State lives on the VM.
 - **Don't use `Locale.getDefault()` for fixed-format dates** (analytics keys, file names, internal logs). Use `Locale.US` (or `Locale.ROOT`). User-visible dates can use `Locale.getDefault()`.

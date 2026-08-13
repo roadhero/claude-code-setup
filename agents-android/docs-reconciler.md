@@ -76,12 +76,14 @@ Run the reconciliation pass described in CLAUDE.md §10. Produce a structured dr
 ### 1. PRD ↔ shipped code
 
 For each section of `docs/REQUIREMENTS.md` (or equivalent):
+
 - Does the PRD describe a feature as "planned" that shipped? → 🟡 update to "shipped in vX.Y.Z".
 - Does the PRD describe a feature that doesn't exist in the code? → 🔴 was it cut? Then mark deferred. Was it shipped under a different name? Then update the PRD.
 - Does the PRD's data model match the Room schema? → 🟡 if drift exists.
 - Does the PRD's permission list match the actual manifest? → 🔴 if a permission was added without PRD update.
 
 Grep for evidence:
+
 ```bash
 grep -E '^\#\# ' docs/REQUIREMENTS.md   # PRD section headers
 grep -E '^- \[ \]' docs/REQUIREMENTS.md # Open items
@@ -91,22 +93,26 @@ grep -E '^- \[x\]' docs/REQUIREMENTS.md # Marked-done items
 ### 2. ROADMAP ↔ CHANGELOG
 
 For each ROADMAP item:
+
 - ✅ Listed as "shipped" → CHANGELOG should have a `## [X.Y.Z]` entry that matches.
 - 🔴 No annotation but the version exists → add "(shipped vX.Y.Z)" or "(partial: shipped X, deferred Y)".
 - 🟢 Future item that hasn't been touched → no action.
 
 For each CHANGELOG entry (recent N):
+
 - Is there a corresponding ROADMAP item, even a vague one? If the work was completely off-roadmap, that's worth flagging — is the roadmap stale?
 
 ### 3. Open issues ↔ reality
 
 For each open issue (limit ~30 most recent):
+
 - Does the issue describe a problem that's been fixed in code? → 🟡 should be closed with a comment.
 - Does the issue describe an owner-bound task that has stale context? → 🟢 add a status comment.
 - Issues older than 90 days without activity → 🟢 candidate for close-or-recommit.
 - Issues with labels that don't match reality (`bug` label on a feature request, `needs-info` after info was provided) → 🟢 relabel.
 
 If `gh` is available:
+
 ```bash
 gh issue list --state open --limit 30 --json number,title,labels,updatedAt,body | jq '.'
 ```
@@ -114,6 +120,7 @@ gh issue list --state open --limit 30 --json number,title,labels,updatedAt,body 
 ### 4. README claims ↔ manifest / code
 
 For each claim in the README's Feature List / Privacy / Tech stack section:
+
 - "No INTERNET permission" — verify with `grep INTERNET app/src/main/AndroidManifest.xml` (should be empty).
 - "No Firebase Analytics" — verify with `grep -r firebase.analytics app/src/main/`.
 - "Min SDK 26" — verify with `grep -E 'minSdk' app/build.gradle.kts`.
@@ -152,6 +159,7 @@ Conversely, a CHANGELOG section without a corresponding tag means a release was 
 ### 7. (Optional) Test coverage drift
 
 If Jacoco coverage is being tracked:
+
 - Last known coverage threshold vs. current. If thresholds are configured in CI, grep the workflow.
 - New code in `app/src/main/` without corresponding tests in `app/src/test/` or `app/src/androidTest/` (a rough heuristic: `git log --since=<last release> --name-only` filtered to `app/src/main/` paths, intersected with test paths).
 

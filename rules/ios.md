@@ -35,12 +35,14 @@ paths:
 ## 7. Quality Gate (local + CI)
 
 Fail fast. Representative ordering — adapt to the project:
+
 ```bash
 swiftlint --strict                                   # lint (warnings as errors)
 swift-format lint --strict --recursive Sources/      # or swiftformat --lint
 xcodebuild build -scheme App -destination 'platform=iOS Simulator,name=iPhone 16' -quiet
 xcodebuild test  -scheme App -destination 'platform=iOS Simulator,name=iPhone 16' -quiet  # unit + UI
 ```
+
 Treat compiler warnings as errors on the app target. With Swift 6 language mode, a concurrency-safety warning is a latent data race — fix it, don't silence it.
 
 ## 8. Test Coverage Policy (iOS surfaces)
