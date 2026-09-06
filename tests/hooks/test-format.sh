@@ -17,7 +17,7 @@ check() {
 
 # run_hook <file_path> : feed a PostToolUse payload naming that path
 run_hook() {
-  printf '%s' "{\"tool_input\":{\"file_path\":\"$1\"}}" | bash "$HOOK" >/dev/null 2>&1
+  jq -n --arg p "$1" '{tool_input:{file_path:$p}}' | bash "$HOOK" >/dev/null 2>&1
 }
 
 # 1. Empty payload: exit 0, nothing happens.
@@ -37,6 +37,7 @@ ok=1; [ "$rc" -eq 0 ] && [ "$(cat "$TMP/note.xyz")" = "$before" ] && ok=0
 check "unknown extension is a no-op" $ok
 
 # 4. Idempotent: a second run on an already-formatted file changes nothing, and no other file appears.
+#    (With no formatter installed, e.g. on CI, both runs are no-ops; the "touches nothing else" half still holds.)
 printf '# Title\n\nSome text.\n' >"$TMP/doc.md"
 run_hook "$TMP/doc.md"
 first=$(cat "$TMP/doc.md")
