@@ -23,7 +23,10 @@
 # subcommand (`-m "--no-verify"`, `-m "eval"`, `tag -m "push" -f`), a `-n` or `-f` on another
 # command inside the same `$(...)` as a commit or push (`-m "$(git log -1 | head -n 1)"`),
 # `--force-if-includes` on its own, `-S<keyid>` with an
-# `n` in the key id, a commit message mentioning `-c core.hooksPath`, a diff over 16 MB (commit
+# `n` in the key id, an unquoted `*`, `?`, `[`, or `{a,b}` in a commit or push (bash expands it
+# when the command runs; quote it, or list the files), an expansion between a shell and its
+# option (`bash $a -c`: bash may see nothing there), an unquoted commit message naming a tool
+# after a committer override on the same line, a commit message mentioning `-c core.hooksPath`, a diff over 16 MB (commit
 # large binaries separately, or via LFS), and an ANSI-C numeric escape (`$'\033[0m'`) in a call
 # that also mentions git, commit, or push. A call whose every one of those words is itself
 # numerically encoded (`$'\x67it' $'\x70ush'`) is the splice limit above.
@@ -137,7 +140,7 @@ strip_data() {
   # a short quoted fragment is part of its word; a dropped span leaves an empty "" so the
   # argument still counts as one (`-m "two words" file` keeps `file` as the pathspec it is);
   # an empty pair (`commi""t`) is nothing, as in bash
-  function closeq() { if (!qbad && qb != "" && qb !~ /[ \t;&|]/) o = o qb; else if (qbad || qb != "") o = o "\"\"" }
+  function closeq() { if (!qbad && qb != "" && qb !~ /[ \t;&|*?\[{]/) o = o qb; else if (qbad || qb != "") o = o "\"\"" }
   function droptests() { while (depth > 0 && kind[depth] == "[") depth-- }   # a test bracket cannot span a command
   function insubst(   k) { for (k = depth; k > 0; k--) if (kind[k] == "$(" || kind[k] == "`" || kind[k] == "<(") return 1; return 0 }
   function inframe(   k) { for (k = depth; k > 0; k--) if (kind[k] != "(") return 1; return 0 }   # anything but a bare subshell
@@ -185,10 +188,10 @@ strip_data() {
         i++; continue
       }
       top = (depth > 0) ? kind[depth] : ""
-      noheredoc = (top == "((" || top == "$((" || top == "[" || top == "$[" || top == "(a" || top == "${")
+      noheredoc = (top == "((" || top == "$((" || top == "[" || top == "[s" || top == "$[" || top == "(a" || top == "${")
       if (ch == "\\") {                       # `\-f` is `-f`; an escaped separator is text, never a boundary
         if (i == n) { cont = 1; i++; continue }
-        o = o ((c[i + 1] ~ /[;&|]/) ? " " : c[i + 1]); i += 2; continue
+        o = o ((c[i + 1] ~ /[;&|]/) ? " " : (c[i + 1] ~ /[*?\[{]/) ? "\"\"" : c[i + 1]); i += 2; continue
       }
       if (ch == "$" && c[i + 1] == "\047") { q = 3; qb = ""; qbad = 0; i += 2; continue }
       if (ch == "\047") { q = 1; qb = ""; qbad = 0; i++; continue }
@@ -201,7 +204,7 @@ strip_data() {
       # `&` in `2>&1` `>&` `&>` `<&-` and `|` in `>|` belong to a redirection operator, not a boundary
       if ((ch == "&" && (c[i - 1] == "<" || c[i - 1] == ">" || c[i + 1] == ">")) || (ch == "|" && c[i - 1] == ">")) { o = o " "; i++; continue }
       if (ch == ";" || ch == "&" || ch == "|") {
-        if (top == "${" || top == "((" || top == "$((" || top == "(a" || top == "$[") { o = o " "; i++; continue }
+        if (top == "${" || top == "((" || top == "$((" || top == "(a" || top == "$[" || top == "[s") { o = o " "; i++; continue }
         # inside `$(...)` a separator ends a command OF THE SUBSTITUTION, never the enclosing one
         # (`git push origin "$(a | b)" --force` is one push): a space keeps the flag with its git
         if (insubst()) { droptests(); cmdpos = 1; o = o " "; i++; continue }
@@ -210,19 +213,21 @@ strip_data() {
       if (ch == "{" || ch == "!") { cmdpos = 1; o = o ch; i++; continue }
       if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { push("$((", 0); o = o " "; i += 3; continue }
       if (ch == "$" && c[i + 1] == "[") { push("$[", 0); o = o " "; i += 2; continue }
-      if (ch == "$" && c[i + 1] == "{") { push("${", 0); o = o " "; i += 2; continue }
+      if (ch == "$" && c[i + 1] == "{") { push("${", 0); o = o " $"; i += 2; continue }   # the `$` marks a word that may expand to nothing
       if (ch == "$" && c[i + 1] == "(") { push("$(", 0); o = o "$( "; i += 2; continue }
-      if (ch == "[") { push("[", 0); o = o " "; i++; continue }
+      # `[` in code opens a test bracket; inside an expansion or arithmetic it is an array subscript
+      # (`${a[1|2]}`), whose `|` and `&` are text, never a command boundary
+      if (ch == "[") { push((noheredoc && top != "[") ? "[s" : "[", 0); o = o " "; i++; continue }
       if ((ch == "<" || ch == ">") && c[i + 1] == "(") { push("<(", 0); o = o ch " "; i += 2; continue }   # process substitution: a word
       if (ch == "(" && noheredoc && top != "${") { push("(a", 0); o = o " "; i++; continue }
       if (ch == "(" && c[i + 1] == "(") { push("((", 0); o = o " "; i += 2; continue }
       if (ch == "(") { push("(", 0); o = o "( "; i++; continue }
       if (ch == ")" && c[i + 1] == ")" && (top == "((" || top == "$((")) { pop(); poppos = i + 1; o = o " "; i += 2; continue }
       if (ch == ")" && top == "(a") { pop(); o = o " "; i++; continue }
-      if (ch == "]" && (top == "[" || top == "$[")) { pop(); o = o " "; i++; continue }
+      if (ch == "]" && (top == "[" || top == "[s" || top == "$[")) { pop(); o = o " "; i++; continue }
       if (ch == "}" && top == "${") { pop(); o = o " "; i++; continue }
       if (ch == ")") {
-        if (top == "[" || top == "${") {         # a frame `)` cannot close: unwind to the `(` it does close
+        if (top == "[" || top == "[s" || top == "${") {   # a frame `)` cannot close: unwind to the `(` it does close
           while (depth > 0 && kind[depth] != "(" && kind[depth] != "$(" && kind[depth] != "<(" && kind[depth] != "`" && kind[depth] != "((" && kind[depth] != "$((") depth--   # drops [ $[ ${ (a
           top = (depth > 0) ? kind[depth] : ""
         }
@@ -231,8 +236,8 @@ strip_data() {
         o = o ch " "; i++; continue
       }
       if (ch == "`") {
-        if (top == "`") pop(); else push("`", 0)
-        o = o " "; i++; continue
+        if (top == "`") { pop(); o = o " " } else { push("`", 0); o = o " `" }   # the backtick marks a word that may expand to nothing
+        i++; continue
       }
       if (ch == "<" && c[i + 1] == "<" && c[i + 2] != "<" && (i == 1 || c[i - 1] != "<") && !noheredoc) {
         j = i + 2; dash = 0
@@ -321,9 +326,10 @@ fi
 # own call, is always available to the agent.
 SHW='(^|[[:space:]()])([^[:space:]#!=]*/)?(ba|z|da|k|c|tc|fi|a|mk|ya)?sh[0-9]*'   # a shell, by name or path (`ksh93`, `bash5` too); `#!/bin/bash` and `x=/bin/sh` are not commands
 RD='([[:space:]]*[0-9]*[<>]+[[:space:]]*[^[:space:]<>]*)*'                          # redirection words are not arguments
-ENVOPT='([[:space:]]+(-[uCPa][[:space:]]+[^[:space:]]+|--(unset|chdir|argv0)[[:space:]]+[^[:space:]]+|-[A-Za-z]*|--[A-Za-z-]+(=[^[:space:]]*)?|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*))*'
+XW='([[:space:]]+([^[:space:]]*[$`][^[:space:]]*|\$\(.*\)))*'                        # words holding an expansion may be nothing at all (`bash $a -c`, `sh $(:) -c`)
+ENVOPT='([[:space:]]+(-[uCPa][[:space:]]+[^[:space:]]+|--(unset|chdir|argv0)[[:space:]]+[^[:space:]]+|-[A-Za-z]*|--[A-Za-z-]+(=[^[:space:]]*)?|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|[^[:space:]]*[$`][^[:space:]]*))*'
 # every alternative supplies its own right boundary, so `shasum`, `shellcheck`, `bashful` never match
-WRAPPER="${SHW}${RD}[[:space:]]*[)}]*[[:space:]]*\$|${SHW}${RD}[[:space:]]+-|${SHW}[[:space:]]*[0-9]*<|${SHW}[[:space:]].*<|(^|[[:space:]()])(eval|trap)([[:space:]]|\$)|(^|[[:space:]()])(source|\.)[[:space:]].*<|(^|[[:space:]()])env${ENVOPT}[[:space:]]+(-[A-Za-z]*S|--split-string)"
+WRAPPER="${SHW}${RD}${XW}${RD}[[:space:]]*[)}]*[[:space:]]*\$|${SHW}${RD}${XW}${RD}[[:space:]]+-|${SHW}[[:space:]]*[0-9]*<|${SHW}[[:space:]].*<|(^|[[:space:]()])(eval|trap)([[:space:]]|\$)|(^|[[:space:]()])(source|\.)[[:space:]].*<|(^|[[:space:]()])env${ENVOPT}[[:space:]]+(-[A-Za-z]*S|--split-string)"
 
 # An alias defined in the same call renames a subcommand out of reach of every check below
 # (`git -c alias.fp=push fp --force`; the `-c` value is quoted data, so the raw command is read too).
@@ -341,6 +347,11 @@ while IFS= read -r SEG; do
   has 'git.*[[:space:]]commit([^[:alnum:]]|$)' "$SEG" && SEG_COMMIT=1
   has 'git.*[[:space:]]push([^[:alnum:]]|$)' "$SEG" && SEG_PUSH=1
   has 'git.*[[:space:]]add([^[:alnum:]]|$)' "$SEG" && HAS_ADD=1
+  # an unquoted `*`, `?`, `[`, or `{a,b}` is expanded by bash when the command runs, into words this
+  # walk never sees (`-*` with a file named `--no-verify` in the directory; `--{force,}`)
+  if [ -n "$SEG_COMMIT$SEG_PUSH" ] && hasc '[*?[]|\{[^[:space:]{}]*(,|\.\.)[^[:space:]{}]*\}' "$SEG"; then
+    echo "Blocked: an unquoted *, ?, [, or {a,b} pattern in a git commit/push is expanded when it runs, so it cannot be inspected. Quote it, or list the files." >&2; exit 2
+  fi
   # a commit with -a/-i/-o, or any bare token after the subcommand that is not the value of a
   # message-like option, commits working-tree content, not just the index: scan it
   if [ -n "$SEG_COMMIT" ]; then
@@ -392,11 +403,18 @@ fi
 # only inspect commit operations further
 [ -z "$IS_COMMIT" ] && exit 0
 
-# committer must be a human — match whole tokens / known bot identities, not substrings
+# committer must be a human — match whole tokens / known bot identities, not substrings.
+# The identity is the repo config, or an override on the command itself (`-c user.name=`,
+# `GIT_COMMITTER_NAME=`, `GIT_AUTHOR_NAME=`, `--author`); the override's value runs to its closing
+# quote, or to the end of the line when it is unquoted.
+IDENT='(claude|chatgpt|copilot|cursor|cursoragent|github-actions|assistant|bot|ai[-_ ]?(agent|assistant|bot))'
 NAME=$(git config user.name 2>/dev/null || echo "")
-if has '(^|[^[:alnum:]])(claude|chatgpt|copilot|cursor|cursoragent|github-actions|assistant|bot|ai[-_ ]?(agent|assistant|bot))([^[:alnum:]]|$)' "$NAME"; then
+if has "(^|[^[:alnum:]])${IDENT}([^[:alnum:]]|\$)" "$NAME"; then
   SAFE_NAME=$(tr -d '\n\r' <<<"$NAME" | cut -c1-40)   # repo-controlled text: one line, short, before it reaches the model
   echo "Blocked: git user.name '$SAFE_NAME' is not a human (CLAUDE.md §2)." >&2; exit 2
+fi
+if has "(user\.name=|GIT_(AUTHOR|COMMITTER)_NAME=|--author[= ])[\"']?([^\"']*[^[:alnum:]\"'])?${IDENT}([^[:alnum:]]|\$)" "$CMD"; then
+  echo "Blocked: the commit sets a committer or author that is not a human (CLAUDE.md §2)." >&2; exit 2
 fi
 
 # no AI attribution in the commit message — scan the command only, not the staged diff.
@@ -433,7 +451,7 @@ if [ -n "$HAS_ADD" ]; then
       case "$f" in *.example|*.sample|*.dist|*.tmpl) continue ;; esac   # (a whole-name match: a newline in the name cannot fool it)
       [ -L "$f" ] && continue                # git stores a symlink's target text, never the target
       [ -f "$f" ] || continue
-      grep -saE -i "$SECRETS" -- "$f" | sed 's/^/>/'   # -a: a NUL byte must not make grep skip the file
+      grep -saE -i -e "$SECRETS" -- "$f" | sed 's/^/>/'   # -a: a NUL byte must not make grep skip the file
       [ "${PIPESTATUS[0]}" -gt 1 ] && printf '>GUARD_SCAN_FAILED %s\n' "$f"
     done
     [ "${PIPESTATUS[0]}" -eq 0 ] || printf '>GUARD_SCAN_FAILED ls-files\n'
@@ -447,7 +465,7 @@ if [ ${#DIFF} -gt 16777216 ]; then
 fi
 # Only ADDED lines (`>`) count: removing a leaked secret from a file must stay committable
 # (§11: rotate, then scrub). One grep, no `-q`, so it reads everything; 1 = clean.
-grep -iE "^>.*($SECRETS)" <<<"$DIFF" >/dev/null
+grep -iE -e "^>.*($SECRETS)" <<<"$DIFF" >/dev/null
 case $? in
   0) echo "Blocked: a secret appears to be staged (CLAUDE.md §11). Unstage it." >&2; exit 2 ;;
   1) ;;
