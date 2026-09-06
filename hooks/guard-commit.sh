@@ -392,17 +392,19 @@ WRAPPER="${SHW}${RD}${XW}${RD}[[:space:]]*[)}]*[[:space:]]*\$|${SHW}${RD}${XW}${
 if has '(^|[^[:alnum:]_])alias\.' "$STRIPPED" || has '-c[[:space:]]*["'"'"']?alias\.' "$CMD"; then
   echo "Blocked: a git alias defined in the same call as a commit/push cannot be inspected. Define it separately, or use the full subcommand." >&2; exit 2
 fi
-# A ${param:-WORD} / ${param=WORD} default (or := ) whose value begins with a dash expands to that
-# flag when the parameter is unset — with no prior assignment, unlike variable indirection — and the
-# walk drops the interior, so it cannot see it. Refuse it (a normal default is a value, not a flag).
-if has '\$\{[A-Za-z0-9_!#]*(\[[^]]*\])?:?[-=+][^A-Za-z0-9]*[-+]' "$CMD"; then
-  echo "Blocked: a \${parameter} whose default or alternate value is a flag or a +refspec cannot be inspected (it may expand to that). Pass it directly, or set the variable first in its own call." >&2; exit 2
+# A ${param:-WORD} default/alternate whose value the walk drops can expand, with no prior assignment,
+# to a flag, a +refspec, or a config token (`${x:---force}`, `${x:-+main}`, `${x:-user.name=Claude}`).
+# A normal default is a plain value; refuse one that is a dash/plus-led flag or that carries an `=`.
+if has '\$\{[A-Za-z0-9_!#]*(\[[^]]*\])?:?[-=+]([^A-Za-z0-9]*[-+]|[^}]*=)' "$CMD"; then
+  echo "Blocked: a \${parameter} default/alternate that is a flag, a +refspec, or a config token cannot be inspected (it may expand to that). Pass it directly, or set the variable first in its own call." >&2; exit 2
 fi
-# A -c / --config / committer / author / hooksPath value taken from an expansion is out of the walk's
-# sight (`git -c ${x:-user.name=Claude}`, `GIT_AUTHOR_NAME=${x:-Claude}`), so the identity/hooksPath
-# checks below never see it: refuse. A legitimate override is a literal, not an expansion.
-if has '(-c|--config)[[:space:]]+["'"'"']?\$|(user\.name|user\.email|core\.hooksPath|--author|GIT_(AUTHOR|COMMITTER)_(NAME|EMAIL))=["'"'"']?\$' "$CMD"; then
-  echo "Blocked: a git config, committer, or author value taken from a shell expansion cannot be inspected (CLAUDE.md §2). Set it to a literal, or set the variable first in its own call." >&2; exit 2
+# A committer, author, or hooksPath value built from an expansion (`GIT_AUTHOR_NAME=C$(printf laude)`,
+# `-c user.name=$x`, `--author=A${y}`) is out of the walk's sight, so the identity/hooksPath checks
+# below never see it. Scan the stripped text (a quoted message is already dropped there, so a prose
+# mention is exempt); a real override keeps its literal `KEY=` and the value's expansion mark.
+# shellcheck disable=SC2016  # $ and ` are literal regex chars
+if hasc '(user\.name=|user\.email=|core\.hooksPath=|--author=|GIT_(AUTHOR|COMMITTER)_(NAME|EMAIL)=)[^[:space:]$`]*[[:space:]]*[$`]' "$STRIPPED"; then
+  echo "Blocked: a committer, author, or hooksPath value built from a shell expansion cannot be inspected (CLAUDE.md §2). Set it to a literal, or set the variable first in its own call." >&2; exit 2
 fi
 
 IS_COMMIT=""; HAS_PUSH=""; HAS_ADD=""; HAS_WORKTREE=""
@@ -415,6 +417,13 @@ while IFS= read -r SEG; do
   has 'git.*[[:space:]]commit([^[:alnum:]]|$)' "$SEG" && SEG_COMMIT=1
   has 'git.*[[:space:]]push([^[:alnum:]]|$)' "$SEG" && SEG_PUSH=1
   has 'git.*[[:space:]]add([^[:alnum:]]|$)' "$SEG" && HAS_ADD=1
+  # a config-position -c/--config (before the subcommand) whose value carries an expansion cannot be
+  # inspected (`git -c c$(printf ore.hooksPath=x) commit`); a reuse-message `commit -c $sha` (value
+  # after the subcommand) and a `-C <dir>` chdir (uppercase) are not this and stay allowed.
+  # shellcheck disable=SC2016  # $ and ` are literal regex chars
+  if [ -n "$SEG_COMMIT$SEG_PUSH" ] && hasc '(^|[[:space:]])(-c|--config)[[:space:]]+[^[:space:]$`]*[[:space:]]*[$`].*[[:space:]](commit|push)([^[:alnum:]]|$)' "$SEG"; then
+    echo "Blocked: a git -c/--config value built from a shell expansion cannot be inspected (it may set core.hooksPath or a committer). Pass a literal, or set it separately." >&2; exit 2
+  fi
   # an unquoted `*`, `?`, `[`, or `{a,b}` is expanded by bash when the command runs, into words this
   # walk never sees (`-*` with a file named `--no-verify` in the directory; `--{force,}`)
   if [ -n "$SEG_COMMIT$SEG_PUSH" ] && hasc '[*?[]|\{[^[:space:]{}]*(,|\.\.)[^[:space:]{}]*\}' "$SEG"; then

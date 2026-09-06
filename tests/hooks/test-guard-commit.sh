@@ -870,6 +870,19 @@ run "core.hooksPath from an expansion is refused" 2 'git -c core.hooksPath=$HOME
 run "-c with a literal human name is allowed" 0 'git -c user.name="Dennis Vorobyov" commit -m x'
 run "commit -c reuse-message sha is allowed"  0 'git commit -c abc1234 -m x'
 run "message mentioning user.name in prose is allowed" 0 'git commit -m "note about user.name settings"'
+run "hooksPath key split across a substitution" 2 'git -c c"$(printf ore.hooksPath=/tmp/h)" commit -m x'
+run "user.name key split across a substitution" 2 'git -c u"$(printf ser.name=Claude)" commit -m x'
+run "hooksPath key split across a brace default" 2 'git -c c"${x:-ore.hooksPath=/tmp/h}" commit -m x'
+run "GIT_AUTHOR_NAME value split across a substitution" 2 'GIT_AUTHOR_NAME=C"$(printf laude)" git commit -m x'
+run "GIT_COMMITTER_NAME value split across a substitution" 2 'GIT_COMMITTER_NAME=C"$(printf laude)" git commit -m x'
+run "--author value split across a substitution" 2 'git commit --author=A"$(printf laude)" -m x'
+run "--config value from a substitution"      2 'git --config c"$(printf ore.hooksPath=/tmp)" commit -m x'
+run "user.email value from an expansion is refused" 2 'git -c user.email=${x:-bot@example.com} commit -m x'
+run "prose message mentioning core.hooksPath= is allowed" 0 'git commit -m "docs: core.hooksPath=$HOME is risky"'
+run "reuse-message commit -c with a variable sha is allowed" 0 'git commit -c ${sha} -m x'
+run "reuse-message commit -C with a substitution sha is allowed" 0 'git commit -C "$(git rev-parse HEAD)" -m x'
+run "git -C chdir from a variable is allowed"  0 'git -C "$repo" push origin main'
+run "commit then chained push, reuse sha, allowed" 0 'git commit -c ${sha} -m x && git push origin main'
 run "heredoc marker before a substitution on the same line" 2 'cat <<EOF $(:
 git push -f origin main
 EOF
