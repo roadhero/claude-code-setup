@@ -7,9 +7,7 @@
 #
 # This is a backstop behind the settings.json deny rules and plan mode, not a sandbox. Known,
 # accepted limits: variable indirection (`p=push; git $p -f`, or a `${x/pat/--force}` replacement,
-# both of which need the variable set to a controlled value first), a committer or author name split
-# across concatenated quoted spans (`--author="$x""Claude"`; the enforced committer from repo config
-# is still checked), git aliases defined in an earlier
+# both of which need the variable set to a controlled value first), git aliases defined in an earlier
 # call, `git config core.hooksPath` set in an earlier call, flags fed through a pipe (`xargs`),
 # unique-prefix long options (`--no-veri`), a word or flag spliced by any expansion or substitution
 # (`git pu${x}sh`, `git pu$(echo s)h`, `--for$(echo c)e`), and the committer and secrets
@@ -31,9 +29,10 @@
 # `n` in the key id, an unquoted `*`, `?`, `[`, or `{a,b}` in a commit or push (bash expands it
 # when the command runs; quote it, or list the files), an expansion between a shell and its
 # option (`bash $a -c`: bash may see nothing there), a `${x}` in a commit or push whose default
-# or alternate value is itself a flag (`${x:---force}`, `${x:+--force}`; refused, since it may expand
+# or alternate value is itself a flag or a `+refspec` (`${x:---force}`, `${x:-+main}`, `${x:-"--force"}`; refused, since it may expand
 # to that flag), git config passed through the environment in
-# a commit or push call (`--config-env`, `GIT_CONFIG_*`, `include.path`, `HOME=`, `XDG_CONFIG_HOME=`),
+# a commit or push call (`--config-env`, `GIT_CONFIG_*`, `include.path`, `HOME=`, `XDG_CONFIG_HOME=`), a
+# `-c`/committer/author value taken from an expansion (`git -c ${x:-user.name=Claude}`; refused),
 # a commit message mentioning `-c core.hooksPath` or an unquoted `include.path`/`HOME=`/`XDG_CONFIG_HOME=`, a diff over 16 MB (commit
 # large binaries separately, or via LFS), and an ANSI-C numeric escape (`$'\033[0m'`) in a call
 # that also mentions git, commit, or push. A call whose every one of those words is itself
@@ -396,8 +395,14 @@ fi
 # A ${param:-WORD} / ${param=WORD} default (or := ) whose value begins with a dash expands to that
 # flag when the parameter is unset — with no prior assignment, unlike variable indirection — and the
 # walk drops the interior, so it cannot see it. Refuse it (a normal default is a value, not a flag).
-if has '\$\{[A-Za-z0-9_!#]*(\[[^]]*\])?:?[-=+][[:space:]]*-' "$CMD"; then
-  echo "Blocked: a \${parameter} whose default or alternate value is a flag cannot be inspected (it may expand to that flag). Pass the flag directly, or set the variable first in its own call." >&2; exit 2
+if has '\$\{[A-Za-z0-9_!#]*(\[[^]]*\])?:?[-=+][^A-Za-z0-9]*[-+]' "$CMD"; then
+  echo "Blocked: a \${parameter} whose default or alternate value is a flag or a +refspec cannot be inspected (it may expand to that). Pass it directly, or set the variable first in its own call." >&2; exit 2
+fi
+# A -c / --config / committer / author / hooksPath value taken from an expansion is out of the walk's
+# sight (`git -c ${x:-user.name=Claude}`, `GIT_AUTHOR_NAME=${x:-Claude}`), so the identity/hooksPath
+# checks below never see it: refuse. A legitimate override is a literal, not an expansion.
+if has '(-c|--config)[[:space:]]+["'"'"']?\$|(user\.name|user\.email|core\.hooksPath|--author|GIT_(AUTHOR|COMMITTER)_(NAME|EMAIL))=["'"'"']?\$' "$CMD"; then
+  echo "Blocked: a git config, committer, or author value taken from a shell expansion cannot be inspected (CLAUDE.md §2). Set it to a literal, or set the variable first in its own call." >&2; exit 2
 fi
 
 IS_COMMIT=""; HAS_PUSH=""; HAS_ADD=""; HAS_WORKTREE=""
