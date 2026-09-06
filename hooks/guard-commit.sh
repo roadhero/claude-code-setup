@@ -14,7 +14,8 @@
 # set in an earlier call (it rewrites the working-tree diff the guard reads), a script body run
 # by name (`bash run.sh`, `source ./run.sh`), and git run from another interpreter
 # (`python3 -c "os.system('git push -f')"`, `perl -e`, `node -e`, awk's `system()`), whose
-# program is data to this walk. Known false blocks (safe direction): a shell wrapper anywhere in
+# program is data to this walk; likewise an expansion that produces a pathspec (`git commit -m x
+# $(echo f)`), whose unseen word is not scanned for secrets. Known false blocks (safe direction): a shell wrapper anywhere in
 # the same call as a plain commit or push (`git commit -m x && bash -c "echo done"`,
 # `bash -x build.sh && git commit -m x`, `which bash && git commit -m x`, `git add zsh bash fish`
 # in a dotfiles repo), `source`/`.` of a process substitution, any mention of `alias.` outside quotes
@@ -27,8 +28,8 @@
 # `n` in the key id, an unquoted `*`, `?`, `[`, or `{a,b}` in a commit or push (bash expands it
 # when the command runs; quote it, or list the files), an expansion between a shell and its
 # option (`bash $a -c`: bash may see nothing there), git config passed through the environment in
-# a commit or push call (`--config-env`, `GIT_CONFIG_*`, `include.path`, `HOME=`), a commit message
-# mentioning `-c core.hooksPath` or an unquoted `include.path`/`HOME=`, a diff over 16 MB (commit
+# a commit or push call (`--config-env`, `GIT_CONFIG_*`, `include.path`, `HOME=`, `XDG_CONFIG_HOME=`),
+# a commit message mentioning `-c core.hooksPath` or an unquoted `include.path`/`HOME=`, a diff over 16 MB (commit
 # large binaries separately, or via LFS), and an ANSI-C numeric escape (`$'\033[0m'`) in a call
 # that also mentions git, commit, or push. A call whose every one of those words is itself
 # numerically encoded (`$'\x67it' $'\x70ush'`) is the splice limit above.
@@ -147,7 +148,7 @@ strip_data() {
   # argument still counts as one (`-m "two words" file` keeps `file` as the pathspec it is),
   # unless it held a substitution, whose own mark already stands there; an empty pair
   # (`commi""t`) is nothing, as in bash
-  function closeq() { if (!qbad && qb != "" && qb !~ /[ \t;&|*?\[{()<>`]/) o = o qb; else if (!qbad && (qb != "" || qfresh)) o = o "\"\"" }
+  function closeq() { if (!qbad && qb != "" && qb !~ /[ \t;&|*?\[{()<>`]/) o = o qb; else if (!qbad && (qb != "" || (qfresh && (i >= n || c[i + 1] ~ /[ \t;&|()<>`]/)))) o = o "\"\"" }
   function droptests() { while (depth > 0 && kind[depth] == "[") depth-- }   # a test bracket cannot span a command
   function insubst(   k) { for (k = depth; k > 0; k--) if (kind[k] == "$(" || kind[k] == "`" || kind[k] == "<(") return 1; return 0 }
   function inframe(   k) { for (k = depth; k > 0; k--) if (kind[k] != "(") return 1; return 0 }   # anything but a bare subshell
@@ -450,8 +451,8 @@ done <<<"$SEGMENTS"
 
 # git can take config from the environment (`--config-env`, `GIT_CONFIG_COUNT`/`KEY_n`/`VALUE_n`,
 # `GIT_CONFIG_PARAMETERS`), where the key or the value is out of every check's sight: refuse.
-if has '--config-env|GIT_CONFIG_(COUNT|KEY_[0-9]+|VALUE_[0-9]+|PARAMETERS|GLOBAL|SYSTEM)=|include\.path=|includeIf\.|(^|[[:space:]])HOME=' "$STRIPPED"; then
-  echo "Blocked: git config from the environment or an unreadable file (--config-env, GIT_CONFIG_*, include.path, HOME) in the same call as a commit/push cannot be inspected. Set it with -c or in the repo config." >&2; exit 2
+if has '--config-env|GIT_CONFIG_(COUNT|KEY_[0-9]+|VALUE_[0-9]+|PARAMETERS|GLOBAL|SYSTEM)=|include\.path=|includeIf\.[^[:space:]]*\.path=|(^|[[:space:]])(HOME|XDG_CONFIG_HOME)=' "$STRIPPED"; then
+  echo "Blocked: git config from the environment or an unreadable file (--config-env, GIT_CONFIG_*, include.path, HOME, XDG_CONFIG_HOME) in the same call as a commit/push cannot be inspected. Set it with -c or in the repo config." >&2; exit 2
 fi
 # Re-pointing core.hooksPath anywhere in the same call (`git -c core.hooksPath=x commit`,
 # `git config core.hooksPath x; git commit`) is the same bypass as --no-verify.

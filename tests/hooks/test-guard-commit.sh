@@ -613,6 +613,10 @@ run "GIT_CONFIG_COUNT on a push is refused"  2 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KE
 run "GIT_CONFIG_GLOBAL inline on a commit is refused" 2 'GIT_CONFIG_GLOBAL=/tmp/cfg git commit -m x'
 run "include.path on a commit is refused"    2 'git -c include.path=/tmp/cfg commit -m x'
 run "includeIf on a commit is refused"       2 'git -c includeIf.gitdir:/x.path=/tmp/cfg commit -m x'
+run "a file named includeIf.md is allowed"   0 'git commit -m x includeIf.md'
+run "XDG_CONFIG_HOME on a commit is refused"  2 'XDG_CONFIG_HOME=/tmp/evil git commit -m x'
+run "XDG_CONFIG_HOME on a push is refused"    2 'XDG_CONFIG_HOME=/tmp/evil git push origin main'
+run "a message mentioning XDG_CONFIG_HOME with spaces is allowed" 0 'git commit -m "set XDG_CONFIG_HOME first"'
 run "HOME= on a commit is refused"           2 'HOME=/tmp git commit -m x'
 run "GIT_CONFIG_GLOBAL exported by the harness is invisible" 0 'git commit -m x'
 run "substitution inside a quoted \${ } is refused" 2 'git commit -m "${v:-"$(git describe)"}"'
@@ -796,6 +800,15 @@ run "dirty tracked secret, -m \$(date) then -- pathspec" 2 'git commit -m "$(dat
 run "dirty tracked secret, quoted backtick word then pathspec" 2 'git commit -m '"'"'a`b'"'"' tracked.txt'
 run "dirty tracked secret, literal \$( in a word then pathspec" 2 'git commit -m x$\(y tracked.txt'
 run "dirty tracked secret, empty message then pathspec" 2 'git commit -m "" tracked.txt'
+run "empty quote glued before push"          2 'git ""push --force origin main'
+run "empty quote glued before the force flag" 2 'git push ""--force origin main'
+run "empty quote glued before commit"        2 'git ""commit --no-verify -m x'
+run "empty quote glued before commit, dirty secret" 2 'git ""commit -am x'
+run "single empty quote glued before commit" 2 "git ''commit --no-verify -m x"
+run "empty quote glued before a bash wrapper" 2 '""bash -c "git push --force origin main"'
+run "empty quote before commit, then chained force-push" 2 'git commit -m x && git ""push --force origin main'
+run "empty quote glued before a word is not a phantom" 0 'git ""status'
+run "standalone empty arg then a plain commit" 0 'echo "" && git commit -m x'
 run "heredoc marker before a substitution on the same line" 2 'cat <<EOF $(:
 git push -f origin main
 EOF
