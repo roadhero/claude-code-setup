@@ -17,6 +17,7 @@ Read the git diff. Walk it against the checklists below. Produce a structured re
 - Run `git diff <protected>...HEAD` (or `git diff --staged` if reviewing unstaged work) to get the change set. If the user supplies a different base, use that.
 - Read the files touched. Diff context isn't enough — you need to see how the changed lines integrate with surrounding code.
 - Read CLAUDE.md §4.3 (Phase 3: Code Reviewer) and §14 (Anti-Patterns), plus the platform rule pack's §5 (Architecture Patterns), §12 (Concurrency Patterns), §13 (Compliance & Distribution) before reviewing.
+- The Phase 1 plan (the `architect` output or the user-approved plan), when one exists. If you were not handed it, ask for it. Without it you can only review forward (diff → task) and must say so in the report; you cannot detect a step that was silently dropped.
 
 # Output format
 
@@ -41,6 +42,7 @@ Read the git diff. Walk it against the checklists below. Produce a structured re
 - Blocking: N
 - Should fix: N
 - Nits: N
+- Plan coverage: N/N plan steps verified with `file:line` (list the missing ones, or "no plan supplied")
 - Recommendation: <APPROVE | REQUEST CHANGES>
 ```
 
@@ -53,14 +55,14 @@ Read the git diff. Walk it against the checklists below. Produce a structured re
 
 # The universal checklist (every changed line)
 
-1. **Trace.** Does this line trace to the task? If not, suggest reverting it.
+1. **Trace, both directions.** Forward: does this line trace to the task? If not, suggest reverting it. Reverse (when a plan exists): does every plan step, named failure mode, and named test have an implementing `file:line` and a test `file:line` in the diff? A step that vanished with no entry under "Deferred / out of scope" is a silent scope shrink, not a non-event — 🔴.
 2. **Hardcodes.** Magic numbers, magic strings, magic URLs, magic IDs — should they be config / env / constant?
 3. **Error handling.** Missing handling for _realistic_ failure cases. Not hypothetical ones — real ones: network down, disk full, permission denied, dependency unavailable, malformed input from an untrusted source.
 4. **Security.**
-   - Unsanitized user input reaching SQL, shell, template, regex, deserializer.
+   - Unsanitized user input — including tool-call arguments and model output — reaching SQL, shell, template, regex, deserializer.
    - Output sanitization (XSS, log injection, command injection).
    - Authentication: every endpoint correctly authenticated.
-   - Authorization: every operation scoped to the right principal.
+   - Authorization: every operation scoped to the right principal, and the principal comes from the verified session / token — never from the request body, a query param, a tool-call argument, or model output.
    - Secrets: nothing logged, nothing in error responses, nothing in URLs.
    - Crypto: only `crypto.randomBytes` / `secrets.token_bytes` / `rand::rngs::OsRng` for security-sensitive randomness — never `Math.random()` / `random.random()` / `rand::random()`.
    - Crypto primitives: no MD5, SHA-1, DES, RC4, ECB mode for new code.
@@ -81,7 +83,7 @@ Read the git diff. Walk it against the checklists below. Produce a structured re
 9. **API boundaries.** No persistence types in API responses? No HTTP types in business logic? No UI types in core domain?
 10. **Backwards compatibility.** Public API change? Schema migration safe to roll back? Old clients still work after deploy? Feature flag for risky changes?
 11. **Observability.** New error paths logged with structured context? New metrics named consistently with existing? New trace span propagated through?
-12. **Tests.** Every new logic branch covered? Test names describe behavior, not implementation? Deterministic — no real wall-clock, no unseeded random?
+12. **Tests.** Every new logic branch covered? Test names describe behavior, not implementation? Deterministic — no real wall-clock, no unseeded random? Would each test still pass if the implementation were deleted or stubbed to a constant? An assertion whose only content is presence or was-called (`toBeDefined`, `toBeTruthy`, bare `toHaveBeenCalled()`, `assertNotNull` alone, `length > 0`), or a test that only exercises the fake, is the 🔴 "test that doesn't test what it claims" from the severity table.
 13. **Dependencies.** New dep added — is it justified? License compatible? Maintained? Security history clean? Pulls in concerning transitives?
 14. **CHANGELOG.** User-visible change has an entry in the next-release section, Keep-a-Changelog format.
 15. **AI tool mentions (CLAUDE.md §2).** Per CLAUDE.md §2, no mention of AI tools, LLMs, or assistants in any committed artifact. Scan with:
@@ -92,25 +94,26 @@ Read the git diff. Walk it against the checklists below. Produce a structured re
 
 # Universal red flags (grep these in the diff)
 
-| Pattern                                                                    | Why it's a red flag                          |
-| -------------------------------------------------------------------------- | -------------------------------------------- |
-| `TODO` without ticket reference                                            | Permanent debt with no owner                 |
-| `FIXME` / `HACK` / `XXX`                                                   | Unfinished work, mark it explicitly          |
-| `eval(` (any language)                                                     | Code execution from untrusted source         |
-| `Math.random()` / `random.random()` / `rand::random()` in security context | Use cryptographic RNG                        |
-| `MD5` / `SHA1` / `DES` / `ECB` for new crypto code                         | Broken or weak primitives                    |
-| `--no-verify` in shell scripts / hooks                                     | Bypasses pre-commit checks                   |
-| `--force` push patterns in CI                                              | Destroys history                             |
-| Hardcoded URL / IP / hostname                                              | Should be configuration                      |
-| Hardcoded `Authorization:` header                                          | Secret in code                               |
-| `localhost` in production-bound code                                       | Won't work outside dev                       |
-| `127.0.0.1` in production-bound code                                       | Same                                         |
-| Broad `catch` / `except` / `rescue` without specific type                  | Swallows real bugs                           |
-| `goto fail` style early-return that skips cleanup                          | Resource leak risk                           |
-| `unsafe` / `transmute` / `as` casting between integer types (Rust)         | Memory or correctness risk; review carefully |
-| Sleep / busy-wait in tests instead of polling for readiness                | Flake source                                 |
-| New env var with no default and no startup-time check                      | Silent misconfiguration in prod              |
-| `git commit -am` patterns in automation                                    | Commits unintended files                     |
+| Pattern                                                                                                                                                                            | Why it's a red flag                                        |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `TODO` without ticket reference                                                                                                                                                    | Permanent debt with no owner                               |
+| `FIXME` / `HACK` / `XXX`                                                                                                                                                           | Unfinished work, mark it explicitly                        |
+| `eval(` (any language)                                                                                                                                                             | Code execution from untrusted source                       |
+| `Math.random()` / `random.random()` / `rand::random()` in security context                                                                                                         | Use cryptographic RNG                                      |
+| `MD5` / `SHA1` / `DES` / `ECB` for new crypto code                                                                                                                                 | Broken or weak primitives                                  |
+| `--no-verify` in shell scripts / hooks                                                                                                                                             | Bypasses pre-commit checks                                 |
+| `--force` push patterns in CI                                                                                                                                                      | Destroys history                                           |
+| Hardcoded URL / IP / hostname                                                                                                                                                      | Should be configuration                                    |
+| Hardcoded `Authorization:` header                                                                                                                                                  | Secret in code                                             |
+| `localhost` in production-bound code                                                                                                                                               | Won't work outside dev                                     |
+| `127.0.0.1` in production-bound code                                                                                                                                               | Same                                                       |
+| Broad `catch` / `except` / `rescue` without specific type                                                                                                                          | Swallows real bugs                                         |
+| `goto fail` style early-return that skips cleanup                                                                                                                                  | Resource leak risk                                         |
+| `unsafe` / `transmute` / `as` casting between integer types (Rust)                                                                                                                 | Memory or correctness risk; review carefully               |
+| Sleep / busy-wait in tests instead of polling for readiness                                                                                                                        | Flake source                                               |
+| Assertion loosened in the diff (`toEqual(x)` → `expect.any()` / `objectContaining`, widened tolerance, assert removed, test deleted to clear a type error) without a linked reason | Test rewritten to go green instead of the code being fixed |
+| New env var with no default and no startup-time check                                                                                                                              | Silent misconfiguration in prod                            |
+| `git commit -am` patterns in automation                                                                                                                                            | Commits unintended files                                   |
 
 # Language-family-specific red flags
 

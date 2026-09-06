@@ -10,7 +10,7 @@ Agents live under `.claude/agents/` (project) or `~/.claude/agents/` (user, all 
 | ------------------ | ---------------------------- | ----------- | --------------------------------------------------------------------------------------------- |
 | `architect`        | Phase 1 planner              | Read-only   | Any non-trivial change. Produces the scoped plan before code is written.                      |
 | `senior-swe`       | Phase 2 implementer          | Mutating    | After plan approval. Writes code matching existing patterns.                                  |
-| `code-reviewer`    | Phase 3 adversarial reviewer | Read-only   | Before pushing. Walks the review checklist against the diff.                                  |
+| `code-reviewer`    | Phase 3 adversarial reviewer | Read-only   | Before pushing. Walks the review checklist against the diff, and the diff against the plan.   |
 | `qa`               | Phase 4 verifier             | Read-only   | After review. Generates the test plan and runs the local gate.                                |
 | `release-engineer` | Release prep                 | Mutating    | Bumping versions, writing CHANGELOG, tagging.                                                 |
 | `docs-reconciler`  | Drift detection              | Read-only   | Every 3–5 merged PRs. Surfaces drift between specs ↔ code ↔ CHANGELOG ↔ README ↔ open issues. |

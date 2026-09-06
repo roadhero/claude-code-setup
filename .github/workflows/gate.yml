@@ -1,0 +1,40 @@
+name: gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Nothing here writes to the repo; keep the token read-only even for same-repo branches.
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Local quality gate (CLAUDE.md §19.3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Install shellcheck and jq
+        run: sudo apt-get update -q && sudo apt-get install -y -q shellcheck jq
+
+      - name: Bash hooks and tests lint clean
+        run: shellcheck hooks/*.sh tests/hooks/*.sh
+
+      - name: Settings parse as valid JSON
+        run: jq empty settings.json settings2.json
+
+      - name: Every agent declares a name
+        run: test -z "$(grep -L '^name:' agents*/*.md)"
+
+      - name: Scaffolder templates match the canonical project template
+        run: |
+          diff -q templates/CLAUDE.project.md skills/new-repo/templates/web/CLAUDE.md.tmpl
+          diff -q templates/CLAUDE.project.md skills/new-repo/templates/android/CLAUDE.md.tmpl
+
+      - name: Commit-guard hook behavior
+        run: bash tests/hooks/test-guard-commit.sh
+
+      - name: Format hook behavior
+        run: bash tests/hooks/test-format.sh

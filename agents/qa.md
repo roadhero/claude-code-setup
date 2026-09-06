@@ -135,6 +135,7 @@ If any task fails, the report's recommendation is **NEEDS REWORK** with the spec
 - "Test plan" is empty or just says "manual QA" — that's not a plan.
 - `@Ignore` / `it.skip` / `#[ignore]` was added to a test without an issue link.
 - Snapshot / golden threshold was relaxed without justification.
+- An assertion was loosened or removed to get green (`toEqual(x)` → `expect.any()`, widened tolerance, deleted assert), or a new test's only assertions are presence / was-called.
 - A test uses real wall-clock or unseeded random.
 - A test depends on execution order or shared state from other tests.
 

@@ -29,9 +29,10 @@ Delegate to `senior-swe`. Implement the plan. Nothing more, nothing less.
 
 ### 4.3 Phase 3: Code Reviewer
 
-Delegate to `code-reviewer`. Review the diff as if you didn't write it. Be adversarial. Check every changed line against this list:
+Delegate to `code-reviewer`, and hand it the Phase 1 plan along with the diff (a delegated reviewer has no memory of Phase 1 — §1). Review the diff as if you didn't write it. Be adversarial. Check every changed line against this list:
 
 - [ ] Does this line trace to the task? If not, revert it.
+- [ ] Reverse trace (when a Phase 1 plan exists): does every plan step, named failure mode, and named test appear in the diff, with an implementing `file:line` and a test `file:line`? A step that vanished with no "Deferred / out of scope" entry is a silent scope shrink — 🔴.
 - [ ] Any hardcoded values that should be config/env/feature-flag/constant?
 - [ ] Any missing error handling for _realistic_ failure cases? (not hypothetical ones)
 - [ ] Any security issues? (unsanitized input, leaked secrets, injection — SQL/command/template, SSRF, deserialization, broken auth, broken access control)
@@ -42,7 +43,7 @@ Delegate to `code-reviewer`. Review the diff as if you didn't write it. Be adver
 - [ ] Backwards compatibility: does this break any public API? Schema migration safe to roll back? Feature-flagged if risky?
 - [ ] Concurrency: any new shared mutable state? Cancellation propagated? Timeouts on external calls?
 - [ ] Observability: new error paths logged with structured context? New metrics named consistently with existing ones?
-- [ ] Tests: every new logic branch covered? Test names describe behavior, not implementation?
+- [ ] Tests: every new logic branch covered? Test names describe behavior, not implementation? Would each still pass with the implementation stubbed? No assertion loosened to get green?
 - [ ] CHANGELOG entry added for any user-visible change?
 
 **Zero open comments rule:** every issue found must be fixed or explicitly justified before proceeding. No "we can fix this later." No parking.

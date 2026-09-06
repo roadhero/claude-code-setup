@@ -20,6 +20,7 @@
 
 - [x] Local quality gate green: `<formatter>`, `<linter>`, `<type-checker>`, `<unit-tests>`, `<build>`, `<integration-tests>` (delete what doesn't apply)
 - [x] Any domain-specific audits clean
+- [ ] Every review thread replied to (fixed-in-<pushed sha> / deferred #N / reasoned disagreement); CI green after the last push
 - [ ] On-target verification:
   - <specific check 1>
   - <specific check 2>
