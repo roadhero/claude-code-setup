@@ -404,8 +404,33 @@ run "ANSI-C with an escaped quote before a hex escape" 2 'git $'"'"'a\'"'"'\x70u
 run "coproc NAME case"                       2 'x="$(coproc nm case a in a) git push --force origin main;; esac)"'
 run "time -p case"                           2 'x="$( { time -p case a in a) git push --force origin main;; esac; } )"'
 run "hooksPath value with a space"           2 'git -c "core.hooksPath=/no such" commit -m x'
+
+# --- a separator inside $( ) ends a command of the substitution, never the enclosing one --------
+run "pipe inside a refspec substitution"     2 'git push origin "$(git branch --show-current | tr -d '"'"' '"'"')" --force'
+run "pipe inside a message substitution"     2 'git commit -m "$(git log -1 --pretty=%s | cut -c1-50)" --no-verify'
+run "; inside a message substitution"        2 'git commit -m "$(echo a; echo b)" --no-verify'
+run "&& inside a message substitution"       2 'git commit -m "$(date && echo)" -n'
+run "backtick substitution with a pipe"      2 'git commit -m "`echo a | cat`" --no-verify'
+run "; inside \$( ) still separates there"   2 'x=$(echo hi; git push -f origin main)'
+run "multi-line subshell with a plain push"  0 '(
+cd sub
+git push origin main
+rm -f tmp
+)'
+run "multi-line subshell with ls -n"         0 '(
+git commit -m x
+ls -n
+)'
+run "absolute-path sh -c wrapper"            2 '/bin/sh -c "git push --force origin main"'
+run "absolute-path bash -c wrapper"          2 '/bin/bash -c "git commit --no-verify -m x"'
+run "\$'EOF' quoted delimiter then push"     2 'cat <<$'"'"'EOF'"'"'
+body
+EOF
+git push -f origin main'
+run "numeric escape with no git is allowed"  0 'find . -print0 | while IFS= read -r -d $'"'"'\0'"'"' f; do echo "$f"; done'
+run "numeric escape with a commit still refused" 2 'git commit -m x; echo $'"'"'\033[0m'"'"''
 DENSE=$(for _ in $(seq 1 600); do printf '  "key": "value",\n'; done)
-run "quote-dense non-git heredoc is fast"    0 "cat > package.json <<'EOF'
+run "quote-dense non-git heredoc is allowed" 0 "cat > package.json <<'EOF'
 {
 $DENSE
 }
@@ -490,6 +515,17 @@ rm shout.txt
 git config diff.algorithm bogus
 run "git diff failure fails closed"          2 'git commit -m "x"'
 git config --unset diff.algorithm
+
+printf 'aws_key=%s\n' "$AWS_KEY" >color.txt
+git add color.txt
+git config color.ui always
+run "color.ui=always does not hide a staged secret" 2 'git commit -m "x"'
+git config --unset color.ui
+git rm -q --cached color.txt && rm color.txt
+
+ln -s /nonexistent-target dangling
+run "dangling symlink does not break add && commit" 0 'git add dangling && git commit -m "x"'
+rm dangling
 
 printf 'aws_key=%s\n' "$AWS_KEY" >config.txt
 git add config.txt

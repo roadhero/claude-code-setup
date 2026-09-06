@@ -13,20 +13,26 @@
 # (safe direction): a one-word quoted argument that spells a flag or subcommand (`-m "--no-verify"`,
 # `-m "eval"`, `tag -m "push" -f`), `--force-if-includes` on its own, `-S<keyid>` with an `n` in
 # the key id, a commit message mentioning `-c core.hooksPath`, and an ANSI-C numeric escape
-# (`$'\033[0m'`) anywhere in a call that also commits or pushes.
+# (`$'\033[0m'`) in a call that also mentions git, commit, or push. A call whose every one of
+# those words is itself numerically encoded (`$'\x67it' $'\x70ush'`) is the splice limit above.
 #
 # No `grep -q` ever reads from a pipe: it exits on the first match, and under pipefail the
 # upstream writer's SIGPIPE would read as "no match". Checks read here-strings, and every grep
 # treats an exit status over 1 as a tool failure that blocks.
 export LC_ALL=C   # byte-oriented grep/awk/tr: an invalid UTF-8 byte must not make a tool drop the rest of the input
 set -o pipefail   # a failing tool anywhere in a pipeline must surface, never read as "no match"
-INPUT=$(cat)
+INPUT=$(cat) || { echo "Blocked: guard-commit.sh could not read its stdin. Failing closed." >&2; exit 2; }
+
+# has <ERE> <text> (case-insensitive) / hasc (case-sensitive): grep that treats any status over 1
+# as a tool failure and fails closed, so a broken grep can never read as "no match".
+has()  { grep -qiE "$1" <<<"$2"; local rc=$?; [ "$rc" -gt 1 ] && { echo "Blocked: guard-commit.sh grep failed. Failing closed." >&2; exit 2; }; return "$rc"; }
+hasc() { grep -qE  "$1" <<<"$2"; local rc=$?; [ "$rc" -gt 1 ] && { echo "Blocked: guard-commit.sh grep failed. Failing closed." >&2; exit 2; }; return "$rc"; }
 
 # Fast path: this guard only concerns `git commit` / `git push`. If the payload mentions
 # neither, allow immediately — so a missing jq (below) never blocks unrelated Bash (ls/cat/grep).
 # Match loosely (no quote-class): a quoted arg before the subcommand (`git -C "x" commit`)
 # must NOT slip past into a silent allow. grep exit 1 = no match; anything else = error.
-FLAT=${INPUT//$'\n'/ }   # a pretty-printed payload must not split the match across lines (no tool needed: raw newlines are rare in JSON)
+FLAT=$(tr '\n' ' ' <<<"$INPUT") || FLAT=$INPUT   # a pretty-printed payload must not split the match across lines
 grep -qiE 'git.*(commit|push)' <<<"$FLAT"
 RC=$?
 if [ "$RC" -eq 1 ]; then
@@ -42,7 +48,7 @@ if [ "$RC" -eq 1 ]; then
   RC=$?
   # Text no dequoting can reveal goes to the walker: an ANSI-C numeric escape (`$'\x70ush'`, the
   # walker refuses it) or a JSON \u escape for an ASCII letter (jq decodes it; the walker sees it).
-  if [ "$RC" -eq 1 ] && { grep -qE "\\\$'" <<<"$FLAT" && grep -qE '\\\\[xuU0-7]' <<<"$FLAT" || grep -qE '\\u00[0-9a-fA-F]{2}' <<<"$FLAT"; }; then RC=0; fi
+  if [ "$RC" -eq 1 ] && has 'git|commit|push' "$J" && { hasc "\\\$'" "$FLAT" && hasc '\\\\[xuU0-7]' "$FLAT" || hasc '\\u00[0-9a-fA-F]{2}' "$FLAT"; }; then RC=0; fi
 fi
 case $RC in
   0) ;;
@@ -63,11 +69,6 @@ if [ -z "$CMD" ]; then
   echo "Blocked: guard-commit.sh could not read .tool_input.command from the PreToolUse payload. Failing closed." >&2
   exit 2
 fi
-
-# has <ERE> <text> (case-insensitive) / hasc (case-sensitive): grep that treats any status over 1
-# as a tool failure and fails closed, so a broken grep can never read as "no match".
-has()  { grep -qiE "$1" <<<"$2"; RC=$?; [ "$RC" -gt 1 ] && { echo "Blocked: guard-commit.sh grep failed. Failing closed." >&2; exit 2; }; return "$RC"; }
-hasc() { grep -qE  "$1" <<<"$2"; RC=$?; [ "$RC" -gt 1 ] && { echo "Blocked: guard-commit.sh grep failed. Failing closed." >&2; exit 2; }; return "$RC"; }
 
 # No agent-realistic command is this long; past this size the character walk below gets slow, so
 # stop here (the per-segment loop further down has its own cap for the same reason).
@@ -121,6 +122,7 @@ strip_data() {
   function refuse(why) { refused = 1; print "guard-commit.sh cannot classify this command: " why ". Rewrite it without that construct." > "/dev/stderr"; exit 3 }
   function closeq() { if (!qbad && qb != "" && qb !~ /[ \t;&|]/) o = o qb }   # a short quoted fragment is part of its word
   function droptests() { while (depth > 0 && kind[depth] == "[") depth-- }   # a test bracket cannot span a command
+  function insubst(   k) { for (k = depth; k > 0; k--) if (kind[k] == "$(" || kind[k] == "`") return 1; return 0 }
   BEGIN { q = 0; depth = 0; npend = 0; body = 0; cont = 0; casec[0] = 0; poppos = -1; poppedkind = ""; cmdpos = 1; kwlead = 0 }
   {
     line = $0
@@ -134,7 +136,7 @@ strip_data() {
         for (k = 1; k < npend; k++) { pword[k] = pword[k + 1]; pdash[k] = pdash[k + 1]; pq[k] = pq[k + 1] }
         npend--
         depth = bodydepth                        # anything left open inside the body dies with it, as in bash
-        if (npend == 0) { body = 0; q = bodyq } else q = (pq[1] ? 5 : 4)
+        if (npend == 0) { body = 0; q = 0 } else q = (pq[1] ? 5 : 4)
         line = rest
       } else if (q == 5) next                    # quoted-delimiter body: inert, drop the line
     }
@@ -176,6 +178,9 @@ strip_data() {
       # `;` `&` `|` separate commands only in code; inside an expansion or arithmetic they are text
       if (ch == ";" || ch == "&" || ch == "|") {
         if (top == "${" || top == "((" || top == "$((" || top == "(a") { o = o " "; i++; continue }
+        # inside `$(...)` a separator ends a command OF THE SUBSTITUTION, never the enclosing one
+        # (`git push origin "$(a | b)" --force` is one push): a space keeps the flag with its git
+        if (insubst()) { droptests(); cmdpos = 1; o = o " "; i++; continue }
         droptests(); cmdpos = 1; o = o ch; i++; continue
       }
       if (ch == "{" || ch == "!") { cmdpos = 1; o = o ch; i++; continue }
@@ -210,6 +215,7 @@ strip_data() {
         while (c[j] == " " || c[j] == "\t") j++
         w = ""; quoted = 0
         while (j <= n && c[j] !~ /[ \t;&|<>()]/) {
+          if (c[j] == "$" && (c[j + 1] == "\047" || c[j + 1] == "\"")) j++   # a $-prefixed quoted delimiter is quoted too
           if (c[j] == "\047" || c[j] == "\"") {  # a quoted delimiter may contain anything up to its closing quote
             qc = c[j]; quoted = 1; j++
             while (j <= n && c[j] != qc) { w = w c[j]; j++ }
@@ -246,14 +252,14 @@ strip_data() {
     if (q == 0 && !cont) droptests()
     # a body starts at the newline that ends the COMMAND (code state, no continuation), as in bash
     enter = (!body && npend > 0 && q == 0 && !cont)
-    # A newline separates commands only at the top level in code. Inside `$(...)` or a subshell it
-    # separates commands of the substitution but not the enclosing one (`-m "$(cat <<EOF ... )" --no-verify`
-    # is ONE command), so it becomes a space; inside a quoted span or a body line it is part of a word.
+    # A newline separates commands in code, except inside `$(...)` where it separates commands of
+    # the substitution but not the enclosing one (`-m "$(cat <<EOF ... )" --no-verify` is ONE
+    # command), so there it becomes a space; inside a quoted span or a body line it is part of a word.
     if (cont) printf "%s", o
-    else if (q == 0 && depth == 0) print o
+    else if (q == 0 && !insubst()) print o
     else if (q == 0 || q == 4) printf "%s ", o
     else printf "%s", o
-    if (enter) { body = 1; bodyq = q; bodydepth = depth; q = (pq[1] ? 5 : 4) }
+    if (enter) { body = 1; bodydepth = depth; q = (pq[1] ? 5 : 4) }
   }
   # A frame or quote still open at the end means bash would reject the whole input (or the walk
   # lost track of it, e.g. a `case` with no `esac`). Either way: refuse to guess.
@@ -266,7 +272,7 @@ fi
 
 # A shell wrapper runs its quoted argument as a command, which the strip above just hid.
 # Refuse rather than guess: the unwrapped form is always available to the agent.
-if hasc '(^|[^[:alnum:]_./-])((ba|z|da)?sh[[:space:]]+-[a-z]*c|eval)([^[:alnum:]_./-]|$)' "$STRIPPED"; then
+if hasc '(^|[^[:alnum:]_.-])((ba|z|da)?sh[[:space:]]+-[a-z]*c|eval)([^[:alnum:]_./-]|$)' "$STRIPPED"; then
   echo "Blocked: git commit/push inside a shell wrapper (sh -c / bash -c / eval) cannot be inspected. Run the git command directly." >&2; exit 2
 fi
 
@@ -345,7 +351,7 @@ SECRETS='(api[_-]?key|secret[_-]?key|access[_-]?key|private[_-]?key|password|tok
 # explicitly whitelisted for commit (e.g. `!.env.example` in the scaffolder .gitignore).
 EXCL=(':(exclude)*.example' ':(exclude)*.sample' ':(exclude)*.dist' ':(exclude)*.tmpl')
 # `--no-ext-diff` and `core.fsmonitor=false` so a repo-local config cannot make the guard run a program.
-GIT_DIFF=(git -c core.fsmonitor=false diff --no-ext-diff)
+GIT_DIFF=(git -c core.fsmonitor=false diff --no-ext-diff --no-color)   # color.ui=always would hide the `+` prefix
 gitfail() { echo "Blocked: guard-commit.sh could not read the diff ($1 failed). Failing closed." >&2; exit 2; }
 DIFF=$("${GIT_DIFF[@]}" --cached 2>/dev/null -- "${EXCL[@]}") || gitfail "git diff --cached"
 if [ -n "$HAS_ADD$HAS_WORKTREE" ]; then
@@ -357,7 +363,9 @@ if [ -n "$HAS_ADD" ]; then
   # NUL-separated paths so a newline in a filename cannot hide a file; a grep failure marks the scan.
   scan_untracked() {
     git ls-files -z --others --exclude-standard 2>/dev/null | while IFS= read -r -d '' f; do
-      hasc '\.(example|sample|dist|tmpl)$' "$f" && continue
+      case "$f" in *.example|*.sample|*.dist|*.tmpl) continue ;; esac   # (a whole-name match: a newline in the name cannot fool it)
+      [ -L "$f" ] && continue                # git stores a symlink's target text, never the target
+      [ -f "$f" ] || continue
       grep -siIE "$SECRETS" -- "$f" | sed 's/^/+/'
       [ "${PIPESTATUS[0]}" -gt 1 ] && printf '+GUARD_SCAN_FAILED %s\n' "$f"
     done
