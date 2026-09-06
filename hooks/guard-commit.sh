@@ -230,6 +230,7 @@ strip_data() {
       if (ch == "$" && c[i + 1] == "(") { push("$(", 0); o = o "$( "; i += 2; continue }
       # `[` in code opens a test bracket; inside an expansion or arithmetic it is an array subscript
       # (`${a[1|2]}`), whose `|` and `&` are text, never a command boundary
+      if (ch == "[" && top == "${") { o = o ch; i++; continue }   # text inside `${...}`, like `)`: `${x:-[}` is a value, not a subscript
       if (ch == "[") {
         if (noheredoc && top != "[") { push("[s", 0); o = o " " }
         else if (cmdpos) { push("[", 0); o = o " " }
@@ -245,6 +246,7 @@ strip_data() {
       if (ch == ")" && top == "(a") { pop(); o = o " "; i++; continue }
       if (ch == "]" && (top == "[" || top == "[s" || top == "$[")) { pop(); o = o " "; i++; continue }
       if (ch == "}" && top == "${") { pop(); if (!inbrace()) o = substr(o, 1, bmark) " "; i++; continue }   # the word is its `$`
+      if (ch == "}" && inbrace()) refuse("a `}` with a paren or bracket still open inside ${...}")   # the word must never outlive its `}`
       if (ch == ")" && inbrace()) { o = o ch; i++; continue }   # text inside `${...}`, like `;` `&` `|`
       if (ch == ")") {
         if (top == "[" || top == "[s") {         # a frame `)` cannot close: unwind to the `(` it does close
