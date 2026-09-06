@@ -36,7 +36,8 @@ if [ -z "$CMD" ]; then
   exit 2
 fi
 
-# No agent-realistic command is this long; past this size the strip below gets slow, so stop here.
+# No agent-realistic command is this long; past this size the character walk below gets slow, so
+# stop here (the per-segment loop further down has its own cap for the same reason).
 if [ ${#CMD} -gt 262144 ]; then
   echo "Blocked: guard-commit.sh will not inspect a git commit/push command over 256 KB. Split it up." >&2
   exit 2
@@ -68,21 +69,26 @@ strip_data() {
   # q: 0 code, 1 single quotes, 2 double quotes, 3 $'"'"'...'"'"', 4 unquoted heredoc body, 5 quoted heredoc body
   # kind[]: "(" subshell, "$(" substitution, "`", "((" arithmetic, "(a" paren inside arithmetic,
   #         "[" subscript/test, "${" parameter expansion. save[]: the q to restore on pop.
-  function push(k, sq) { kind[++depth] = k; save[depth] = sq; casec[depth] = 0 }
-  function pop() { q = save[depth]; poppedkind = kind[depth]; depth--; poppos = i }
+  function push(k, sq) { kind[++depth] = k; save[depth] = sq; casec[depth] = 0; pendat[depth] = npend }
+  function pop() {
+    if (npend > pendat[depth]) exit 3            # a marker inside a substitution closed on its own line: refuse to guess
+    q = save[depth]; poppedkind = kind[depth]; depth--; poppos = i
+  }
   BEGIN { q = 0; depth = 0; npend = 0; body = 0; cont = 0; casec[0] = 0; poppos = -1; poppedkind = "" }
   {
     line = $0
     if (body) {
       t = line
       if (pdash[1]) sub(/^\t+/, "", t)
-      tail = ""
-      while (t ~ /\)$/) { t = substr(t, 1, length(t) - 1); tail = tail ")" }
-      if (t == pword[1]) {                       # terminator: leave this body, walk any `)` tail as code
+      w1 = pword[1]; rest = ""; term = 0
+      if (t == w1) term = 1
+      else if (depth > 0 && substr(t, 1, length(w1) + 1) == w1 ")") { term = 1; rest = substr(t, length(w1) + 1) }   # `EOF)...` closes a $( too
+      if (term) {                                # terminator: leave this body, walk the rest of the line as code
         for (k = 1; k < npend; k++) { pword[k] = pword[k + 1]; pdash[k] = pdash[k + 1]; pq[k] = pq[k + 1] }
         npend--
+        depth = bodydepth                        # anything left open inside the body dies with it, as in bash
         if (npend == 0) { body = 0; q = bodyq } else q = (pq[1] ? 5 : 4)
-        line = tail
+        line = rest
       } else if (q == 5) next                    # quoted-delimiter body: inert, drop the line
     }
     n = split(line, c, "")
@@ -97,14 +103,14 @@ strip_data() {
         if (ch == "\\") { i += 2; continue }
         if (q == 2 && ch == "\"") { q = 0; i++; continue }
         if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { push("((", q); q = 0; o = o " "; i += 3; continue }
-        if (ch == "$" && c[i + 1] == "(") { push("$(", q); q = 0; o = o " "; i += 2; continue }
+        if (ch == "$" && c[i + 1] == "(") { push("$(", q); q = 0; o = o "$("; i += 2; continue }
         if (ch == "$" && c[i + 1] == "{") { push("${", q); q = 0; o = o " "; i += 2; continue }
         if (ch == "`") { push("`", q); q = 0; o = o " "; i++; continue }
         i++; continue
       }
       top = (depth > 0) ? kind[depth] : ""
       noheredoc = (top == "((" || top == "[" || top == "(a" || top == "${")
-      if (ch == "\\") { if (i == n) { cont = 1; i++; continue } o = o ch c[i + 1]; i += 2; continue }
+      if (ch == "\\") { if (i == n) { cont = 1; i++; continue } o = o c[i + 1]; i += 2; continue }   # `\-f` is `-f`
       if (ch == "$" && c[i + 1] == "\047") { q = 3; i += 2; continue }
       if (ch == "\047") { q = 1; i++; continue }
       if (ch == "\"") { q = 2; i++; continue }
@@ -146,7 +152,10 @@ strip_data() {
           }
           w = w c[j]; j++
         }
-        if (w != "") { pword[++npend] = w; pdash[npend] = dash; pq[npend] = quoted }
+        if (w != "") {
+          if (body) exit 3                       # a heredoc nested inside another body: refuse to guess
+          pword[++npend] = w; pdash[npend] = dash; pq[npend] = quoted
+        }
         o = o "<<"; i = j; continue
       }
       if (ch ~ /[A-Za-z_]/ && (i == 1 || c[i - 1] !~ /[A-Za-z0-9_]/)) {   # a word: track case ... esac
@@ -158,8 +167,10 @@ strip_data() {
       }
       o = o ch; i++
     }
+    # a body starts at the newline that ends the COMMAND (code state, no continuation), as in bash
+    enter = (!body && npend > 0 && q == 0 && !cont)
     if (cont) { printf "%s", o; cont = 0 } else print o
-    if (!body && npend > 0) { body = 1; bodyq = q; q = (pq[1] ? 5 : 4) }
+    if (enter) { body = 1; bodyq = q; bodydepth = depth; q = (pq[1] ? 5 : 4) }
   }'
 }
 if ! STRIPPED=$(printf '%s' "$CMD" | strip_data); then
@@ -171,6 +182,14 @@ fi
 # Refuse rather than guess: the unwrapped form is always available to the agent.
 if printf '%s' "$STRIPPED" | grep -qE '(^|[^[:alnum:]_./-])((ba|z|da)?sh[[:space:]]+-[a-z]*c|eval)([^[:alnum:]_./-]|$)'; then
   echo "Blocked: git commit/push inside a shell wrapper (sh -c / bash -c / eval) cannot be inspected. Run the git command directly." >&2; exit 2
+fi
+
+# Each segment costs a few greps; thousands of `;`-separated segments could outlast the hook
+# timeout, and a timed-out PreToolUse hook does not block. No real command has hundreds.
+SEGMENTS=$(printf '%s' "$STRIPPED" | tr ';&|' '\n')
+if [ "$(printf '%s' "$STRIPPED" | tr -cd ';&|\n' | wc -c)" -gt 500 ]; then
+  echo "Blocked: guard-commit.sh will not inspect a git commit/push command with over 500 segments. Split it up." >&2
+  exit 2
 fi
 
 IS_COMMIT=""; HAS_PUSH=""; HAS_ADD=""
@@ -199,7 +218,7 @@ while IFS= read -r SEG; do
   if [ -n "$SEG_COMMIT" ] && printf '%s' "$SEG" | grep -qiE '[[:space:]]commit.*[[:space:]]-[A-Za-z]*n[A-Za-z]*([^[:alnum:]]|$)'; then
     echo "Blocked: git commit -n is --no-verify (CLAUDE.md §14). Fix the hook failure instead." >&2; exit 2
   fi
-done <<<"$(printf '%s' "$STRIPPED" | tr ';&|' '\n')"
+done <<<"$SEGMENTS"
 
 [ -z "$IS_COMMIT$HAS_PUSH" ] && exit 0
 

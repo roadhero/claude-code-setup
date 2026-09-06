@@ -257,6 +257,45 @@ run "case statement in plain code"           2 'case x in x) echo hi;; esac
 git push -f origin main'
 run "case statement then plain push"         0 'case x in x) echo hi;; esac
 git push origin feat/x'
+run "case inside a substitution in a body"   2 'cat <<EOF
+$(case x in x) git push -f origin main;; esac)
+EOF'
+run "multi-line here-string then push"       2 'read -r a <<<"hello
+world"
+git push -f origin main'
+run "EOF)\" terminator then a chained push"  2 'git commit -m "$(cat <<EOF
+body
+EOF)" && git push -f origin main'
+run "EOF) && terminator"                     2 'x=$(cat <<EOF
+body
+EOF) && git push -f origin main'
+run "EOF)\" terminator then push on next line" 2 'git commit -m "$(cat <<EOF
+body
+EOF)"
+git push -f origin main'
+run "heredoc nested inside a body substitution" 2 'cat <<EOF
+$(cat <<INNER
+hello
+INNER
+)
+EOF
+git push -f origin main'
+run "marker line continued then push"        2 'cat <<EOF \
+; git push -f origin main
+EOF'
+run "marker line with an open quote"         2 'cat <<EOF "x
+" ; git push -f origin main
+EOF'
+run "unclosed \$( inside a body, then case"  2 'cat <<EOF
+$(echo hi
+EOF
+case x in x) git push -f origin main;; esac'
+run "substitution with marker closed on its line" 2 'x=$(cat <<EOF)
+git push -f origin main
+EOF'
+run "backslash-escaped -f"                   2 'git push \-f origin main'
+BIGSEG=$(head -c 1200 /dev/zero | tr '\0' ';')
+run "too many segments fails closed"         2 "git commit -m x $BIGSEG"
 BIG=$(head -c 300000 /dev/zero | tr '\0' 'a')
 run "oversized command fails closed"         2 "git commit -m $BIG"
 
@@ -361,8 +400,22 @@ run_nojq() {
 run_nojq "no jq: commit fails closed"        2 'git commit -m "x"'
 run_nojq "no jq: unrelated command allowed"  0 'ls'
 
+# --- missing awk: the strip cannot run, so a git commit/push fails closed ---------------------
+NOAWK="$TMP/noawk"
+mkdir -p "$NOAWK"
+for t in bash sh grep git sed tr printf cat jq wc; do
+  p=$(command -v "$t") && ln -s "$p" "$NOAWK/$t"
+done
+run_noawk() {
+  printf '%s' "$3" | jq -Rs '{tool_input:{command:.}}' >"$TMP/payload"
+  PATH="$NOAWK" bash "$HOOK" <"$TMP/payload" >/dev/null 2>"$TMP/err"
+  record "$1" "$2" $? "$3"
+}
+run_noawk "no awk: commit fails closed"      2 'git commit -m "x"'
+run_noawk "no awk: unrelated command allowed" 0 'ls'
+
 # Every case in this file must have been counted: a case that ran in a subshell would be lost.
-EXPECTED=$(grep -cE '^(run|run_raw|run_nojq) ' "$SELF")
+EXPECTED=$(grep -cE '^(run|run_raw|run_nojq|run_noawk) ' "$SELF")
 if [ "$((PASS + FAIL))" -ne "$EXPECTED" ]; then
   echo "FAIL: $EXPECTED cases defined, $((PASS + FAIL)) counted"
   FAIL=$((FAIL + 1))
