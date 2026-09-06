@@ -76,8 +76,8 @@ fi
 strip_data() {
   awk '
   # q: 0 code, 1 single quotes, 2 double quotes, 3 $'"'"'...'"'"', 4 unquoted heredoc body, 5 quoted heredoc body
-  # kind[]: "(" subshell, "$(" substitution, "`", "((" arithmetic, "(a" paren inside arithmetic,
-  #         "[" subscript/test, "${" parameter expansion. save[]: the q to restore on pop.
+  # kind[]: "(" subshell, "$(" substitution, "`", "((" arithmetic command, "$((" arithmetic expansion,
+  #         "(a" paren inside arithmetic, "[" subscript/test, "${" parameter expansion. save[]: the q to restore on pop.
   function push(k, sq) { kind[++depth] = k; save[depth] = sq; casec[depth] = 0; pendat[depth] = npend; cmdpos = 1 }
   function pop() {
     if (npend > pendat[depth]) exit 3            # a marker inside a substitution closed on its own line: refuse to guess
@@ -113,24 +113,29 @@ strip_data() {
       if (q == 2 || q == 4) {                    # data that still expands substitutions
         if (ch == "\\") { i += 2; continue }
         if (q == 2 && ch == "\"") { q = 0; i++; continue }
-        if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { push("((", q); q = 0; o = o " "; i += 3; continue }
+        if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { push("$((", q); q = 0; o = o " "; i += 3; continue }
         if (ch == "$" && c[i + 1] == "(") { push("$(", q); q = 0; o = o "$("; i += 2; continue }
         if (ch == "$" && c[i + 1] == "{") { push("${", q); q = 0; o = o " "; i += 2; continue }
         if (ch == "`") { push("`", q); q = 0; o = o " "; i++; continue }
         i++; continue
       }
       top = (depth > 0) ? kind[depth] : ""
-      noheredoc = (top == "((" || top == "[" || top == "(a" || top == "${")
+      noheredoc = (top == "((" || top == "$((" || top == "[" || top == "(a" || top == "${")
       if (ch == "\\") { if (i == n) { cont = 1; i++; continue } o = o c[i + 1]; i += 2; continue }   # `\-f` is `-f`
       if (ch == "$" && c[i + 1] == "\047") { q = 3; i += 2; continue }
       if (ch == "\047") { q = 1; i++; continue }
       if (ch == "\"") { q = 2; i++; continue }
       # a comment starts only where a word starts: after whitespace, a control operator, or the `)`
-      # of a subshell. The `)` of `$(...)`, a closing backtick, or `))` end a word, not a command.
-      if (ch == "#" && !noheredoc && (i == 1 || c[i - 1] ~ /[ \t;&|(]/ || (c[i - 1] == ")" && poppos == i - 1 && poppedkind == "("))) break
-      if (ch == ";" || ch == "&" || ch == "|") { droptests(); cmdpos = 1; o = o ch; i++; continue }
+      # that ends a subshell or an `((...))` command. The `)` of `$(...)` / `$((...))` or a closing
+      # backtick ends a word, and `#` after it is part of that word.
+      if (ch == "#" && !noheredoc && (i == 1 || c[i - 1] ~ /[ \t;&|(]/ || (c[i - 1] == ")" && poppos == i - 1 && (poppedkind == "(" || poppedkind == "((")))) break
+      # `;` `&` `|` separate commands only in code; inside an expansion or arithmetic they are text
+      if (ch == ";" || ch == "&" || ch == "|") {
+        if (top == "${" || top == "((" || top == "$((" || top == "(a") { o = o " "; i++; continue }
+        droptests(); cmdpos = 1; o = o ch; i++; continue
+      }
       if (ch == "{" || ch == "!") { cmdpos = 1; o = o ch; i++; continue }
-      if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { push("((", 0); o = o " "; i += 3; continue }
+      if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { push("$((", 0); o = o " "; i += 3; continue }
       if (ch == "$" && c[i + 1] == "[") { push("[", 0); o = o " "; i += 2; continue }
       if (ch == "$" && c[i + 1] == "{") { push("${", 0); o = o " "; i += 2; continue }
       if (ch == "$" && c[i + 1] == "(") { push("$(", 0); o = o "$("; i += 2; continue }
@@ -138,13 +143,13 @@ strip_data() {
       if (ch == "(" && noheredoc && top != "${") { push("(a", 0); o = o " "; i++; continue }
       if (ch == "(" && c[i + 1] == "(") { push("((", 0); o = o " "; i += 2; continue }
       if (ch == "(") { push("(", 0); o = o ch; i++; continue }
-      if (ch == ")" && c[i + 1] == ")" && top == "((") { pop(); o = o " "; i += 2; continue }
+      if (ch == ")" && c[i + 1] == ")" && (top == "((" || top == "$((")) { pop(); poppos = i + 1; o = o " "; i += 2; continue }
       if (ch == ")" && top == "(a") { pop(); o = o " "; i++; continue }
       if (ch == "]" && top == "[") { pop(); o = o " "; i++; continue }
       if (ch == "}" && top == "${") { pop(); o = o " "; i++; continue }
       if (ch == ")") {
         if (top == "[" || top == "${") {         # a frame `)` cannot close: unwind to the `(` it does close
-          while (depth > 0 && kind[depth] != "(" && kind[depth] != "$(" && kind[depth] != "`" && kind[depth] != "((") depth--
+          while (depth > 0 && kind[depth] != "(" && kind[depth] != "$(" && kind[depth] != "`" && kind[depth] != "((" && kind[depth] != "$((") depth--
           top = (depth > 0) ? kind[depth] : ""
         }
         if (casec[depth] > 0) { o = o ch; i++; cmdpos = 1; continue }   # a case pattern terminator
@@ -293,9 +298,13 @@ if [ -n "$HAS_ADD" ]; then
   }
   DIFF="$DIFF"$'\n'"$(scan_untracked)"
 fi
-# Only ADDED lines count (`+` but not the `+++` file header): removing a leaked secret from a file
-# must stay committable (§11: rotate, then scrub). One grep, one pass, no pipe.
-if grep -qiE "^\+([^+]|\+[^+]|$).*($SECRETS)" <<<"$DIFF"; then
-  echo "Blocked: a secret appears to be staged (CLAUDE.md §11). Unstage it." >&2; exit 2
-fi
+# Only ADDED lines count (`+` but not the `+++ b/file` header): removing a leaked secret from a
+# file must stay committable (§11: rotate, then scrub). No `-q` anywhere: every stage reads all of
+# its input, so an early exit can never SIGPIPE a writer into "no match". grep 1 = clean.
+grep -E '^\+' <<<"$DIFF" | grep -vE '^\+\+\+ (b/|/dev/null)' | grep -iE "$SECRETS" >/dev/null
+case $? in
+  0) echo "Blocked: a secret appears to be staged (CLAUDE.md §11). Unstage it." >&2; exit 2 ;;
+  1) ;;
+  *) echo "Blocked: guard-commit.sh could not scan the staged diff for secrets (grep failed). Failing closed." >&2; exit 2 ;;
+esac
 exit 0

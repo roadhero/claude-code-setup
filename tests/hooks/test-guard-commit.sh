@@ -312,6 +312,14 @@ git push -f origin main'
 run "unbalanced quote inside \${ }"          2 'echo ${x//"/} ; git push --force origin main'
 run "unclosed \$( at end of input"           2 'x=$(echo hi
 git push -f origin main'
+run "; inside \${ } does not split a push"   2 'git push ${x:-;} --force origin main'
+run "| inside \${ } does not split a commit" 2 'git commit ${x:-a|} --no-verify -m x'
+run "; inside \${ } in a -c value"           2 'git -c ${x:-x.y=z;} push --force origin main'
+run "; inside a real \$( ) still splits"     2 'x=$(echo hi; git push -f origin main)'
+run "# after (( )) is a comment"             2 '((1))#c <<EOF
+git push --force origin main'
+run "# after \$(( )) is part of the word"    0 'echo $((1))#c <<EOF
+git push --force origin main is body here'
 run "unbalanced [ then a benign heredoc"     0 'echo [
 cat > n.md <<EOF
 never git push -f
@@ -406,6 +414,11 @@ git rm -q --cached key.txt && rm key.txt
 git add big.txt
 run "secret at the top of a 200 KB staged diff" 2 'git commit -m "x"'
 git rm -q --cached big.txt && rm big.txt
+
+printf '++aws_key=%s\n' "$AWS_KEY" >plus.txt
+git add plus.txt
+run "secret on an added line starting with ++" 2 'git commit -m "x"'
+git rm -q --cached plus.txt && rm plus.txt
 
 # Scrubbing a leaked secret (a removed line) must stay committable; git is called directly here,
 # the hook is not involved in seeding the leak.
