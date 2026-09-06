@@ -233,6 +233,30 @@ run "quoted delimiter with a space"          2 'cat <<"E OF"
 body
 E OF
 git push -f origin main'
+run "# right after \$( ) is not a comment"   2 'echo $(date)#x; git push --force origin main'
+run "# right after a backtick is not a comment" 2 'echo `date`#x; git push --force origin main'
+run "# after \$( ) in a chained commit"      2 'git commit -m x && echo $(date)#c && git push --force origin main'
+run "# after a subshell is a comment"        0 '( : )#c git push --force origin main'
+run "delimiter split by a continuation"      2 'cat <<E\
+OF
+body
+EOF
+git push --force origin main'
+run "<< inside \${ } is not a heredoc"       2 'echo ${x:-<<EOF}
+git push --force origin main'
+run "<< inside an array subscript"           2 'a[1<<2]=1
+git push --force origin main'
+run "test brackets then a force-push"        2 '[ -f x ] && git push -f origin main'
+run "word split across a continuation"       2 'git pu\
+sh --force origin main'
+run "flag split across a continuation"       2 'git push --for\
+ce origin main'
+run "case pattern inside a quoted \$( )"     2 'x="$(case a in a) git push --force origin main;; esac)"'
+run "case pattern then a chained push"       2 'git commit -m "$(case a in a) echo x;; esac)" && git push -f origin main'
+run "case statement in plain code"           2 'case x in x) echo hi;; esac
+git push -f origin main'
+run "case statement then plain push"         0 'case x in x) echo hi;; esac
+git push origin feat/x'
 BIG=$(head -c 300000 /dev/zero | tr '\0' 'a')
 run "oversized command fails closed"         2 "git commit -m $BIG"
 

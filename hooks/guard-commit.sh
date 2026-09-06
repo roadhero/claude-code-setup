@@ -5,16 +5,22 @@
 # This is a backstop behind the settings.json deny rules and plan mode, not a sandbox. Known,
 # accepted limits: variable indirection (`p=push; git $p -f`), git aliases defined in an earlier
 # call, `git config core.hooksPath` set in an earlier call, flags fed through a pipe (`xargs`),
-# flags spelled with quoting tricks (`--no-veri"fy"`, `$'--no-verify'`, unique-prefix `--no-veri`),
-# and a `case` pattern's `)` inside a double-quoted `$(...)`, which closes the substitution early.
+# and flags spelled with quoting tricks (`--no-veri"fy"`, `$'--no-verify'`, unique-prefix `--no-veri`).
 export LC_ALL=C   # byte-oriented grep/awk/tr: an invalid UTF-8 byte must not make a tool drop the rest of the input
+set -o pipefail   # a failing tool anywhere in a pipeline must surface, never read as "no match"
 INPUT=$(cat)
 
 # Fast path: this guard only concerns `git commit` / `git push`. If the payload mentions
 # neither, allow immediately — so a missing jq (below) never blocks unrelated Bash (ls/cat/grep).
 # Match loosely (no quote-class): a quoted arg before the subcommand (`git -C "x" commit`)
-# must NOT slip past into a silent allow.
-printf '%s' "$INPUT" | grep -qiE 'git.*(commit|push)' || exit 0
+# must NOT slip past into a silent allow. JSON-escaped backslash-newlines (`git pu\` + `sh`) are
+# joined first so a split word cannot dodge the match. grep exit 1 = no match; anything else = error.
+printf '%s' "$INPUT" | sed 's/\\\\\\n//g' | grep -qiE 'git.*(commit|push)'
+case $? in
+  0) ;;
+  1) exit 0 ;;
+  *) echo "Blocked: guard-commit.sh could not run its fast-path check (sed/grep failed). Failing closed." >&2; exit 2 ;;
+esac
 
 # The command plausibly commits/pushes — jq is needed to inspect it. Fail loud and closed.
 if ! command -v jq >/dev/null 2>&1; then
@@ -42,11 +48,15 @@ fi
 # can't trip a flag check or split a segment. One quote model does all of it, a character walk
 # that keeps its state across lines:
 #  - single-, double-, and ANSI-C ($'...') quoted spans, with \ escapes; a backslash-newline in
-#    code joins the next line, so a flag on its own line stays with its subcommand;
+#    code joins the next line with nothing in between, as bash does, so a flag on its own line
+#    (or a word split across lines) stays with its subcommand;
 #  - `$(...)` and backticks reopen code inside double quotes and inside unquoted heredoc bodies
 #    (bash expands them there: `cat <<EOF` + `$(git push -f)` runs the push);
-#  - `$((...))`, `((...))`, `$[...]` arithmetic, where `<<` is a shift, not a heredoc;
-#  - `#` comments to end of line;
+#  - `$((...))`, `((...))`, `$[...]`, `${...}`, and `[...]` frames, where `<<` is a shift or
+#    text, not a heredoc;
+#  - `#` comments to end of line, only where bash starts one: at the start of a word, which a
+#    `)` closing `$(...)` or a closing backtick is not;
+#  - `case ... esac`: a pattern's `)` does not close an enclosing `$(...)`;
 #  - heredoc bodies, dropped line by line up to the terminator (`EOF)` also closes a `$(`,
 #    `<<-` allows leading tabs, an unterminated body runs to end of input as in bash). A `<<WORD`
 #    marker counts only in code, never inside a string, a comment, or arithmetic: honoring one
@@ -56,7 +66,11 @@ fi
 strip_data() {
   awk '
   # q: 0 code, 1 single quotes, 2 double quotes, 3 $'"'"'...'"'"', 4 unquoted heredoc body, 5 quoted heredoc body
-  BEGIN { q = 0; depth = 0; npend = 0; body = 0; cont = 0 }
+  # kind[]: "(" subshell, "$(" substitution, "`", "((" arithmetic, "(a" paren inside arithmetic,
+  #         "[" subscript/test, "${" parameter expansion. save[]: the q to restore on pop.
+  function push(k, sq) { kind[++depth] = k; save[depth] = sq; casec[depth] = 0 }
+  function pop() { q = save[depth]; poppedkind = kind[depth]; depth--; poppos = i }
+  BEGIN { q = 0; depth = 0; npend = 0; body = 0; cont = 0; casec[0] = 0; poppos = -1; poppedkind = "" }
   {
     line = $0
     if (body) {
@@ -74,6 +88,7 @@ strip_data() {
     n = split(line, c, "")
     o = ""
     i = 1
+    poppos = -1
     while (i <= n) {
       ch = c[i]
       if (q == 1) { if (ch == "\047") q = 0; i++; continue }
@@ -81,32 +96,40 @@ strip_data() {
       if (q == 2 || q == 4) {                    # data that still expands substitutions
         if (ch == "\\") { i += 2; continue }
         if (q == 2 && ch == "\"") { q = 0; i++; continue }
-        if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { kind[++depth] = "(("; save[depth] = q; q = 0; o = o " "; i += 3; continue }
-        if (ch == "$" && c[i + 1] == "(") { kind[++depth] = "("; save[depth] = q; q = 0; o = o " "; i += 2; continue }
-        if (ch == "`") { kind[++depth] = "`"; save[depth] = q; q = 0; o = o " "; i++; continue }
+        if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { push("((", q); q = 0; o = o " "; i += 3; continue }
+        if (ch == "$" && c[i + 1] == "(") { push("$(", q); q = 0; o = o " "; i += 2; continue }
+        if (ch == "$" && c[i + 1] == "{") { push("${", q); q = 0; o = o " "; i += 2; continue }
+        if (ch == "`") { push("`", q); q = 0; o = o " "; i++; continue }
         i++; continue
       }
-      arith = (depth > 0 && (kind[depth] == "((" || kind[depth] == "[" || kind[depth] == "(a"))
+      top = (depth > 0) ? kind[depth] : ""
+      noheredoc = (top == "((" || top == "[" || top == "(a" || top == "${")
       if (ch == "\\") { if (i == n) { cont = 1; i++; continue } o = o ch c[i + 1]; i += 2; continue }
       if (ch == "$" && c[i + 1] == "\047") { q = 3; i += 2; continue }
       if (ch == "\047") { q = 1; i++; continue }
       if (ch == "\"") { q = 2; i++; continue }
-      if (ch == "#" && (i == 1 || c[i - 1] ~ /[ \t;&|()`]/)) break
-      if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { kind[++depth] = "(("; save[depth] = 0; o = o " "; i += 3; continue }
-      if (ch == "$" && c[i + 1] == "[") { kind[++depth] = "["; save[depth] = 0; o = o " "; i += 2; continue }
-      if (ch == "$" && c[i + 1] == "(") { kind[++depth] = "("; save[depth] = 0; o = o "$("; i += 2; continue }
-      if (ch == "(" && arith) { kind[++depth] = "(a"; save[depth] = 0; o = o " "; i++; continue }
-      if (ch == "(" && c[i + 1] == "(") { kind[++depth] = "(("; save[depth] = 0; o = o " "; i += 2; continue }
-      if (ch == "(") { kind[++depth] = "("; save[depth] = 0; o = o ch; i++; continue }
-      if (ch == ")" && c[i + 1] == ")" && depth > 0 && kind[depth] == "((") { q = save[depth--]; o = o " "; i += 2; continue }
-      if (ch == ")" && depth > 0 && kind[depth] == "(a") { q = save[depth--]; o = o " "; i++; continue }
-      if (ch == "]" && depth > 0 && kind[depth] == "[") { q = save[depth--]; o = o " "; i++; continue }
-      if (ch == ")" && depth > 0 && kind[depth] == "(") { q = save[depth--]; o = o ch; i++; continue }
+      # a comment starts only where a word starts: after whitespace, a control operator, or the `)`
+      # of a subshell. The `)` of `$(...)`, a closing backtick, or `))` end a word, not a command.
+      if (ch == "#" && (i == 1 || c[i - 1] ~ /[ \t;&|(]/ || (c[i - 1] == ")" && poppos == i - 1 && poppedkind == "("))) break
+      if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { push("((", 0); o = o " "; i += 3; continue }
+      if (ch == "$" && c[i + 1] == "[") { push("[", 0); o = o " "; i += 2; continue }
+      if (ch == "$" && c[i + 1] == "{") { push("${", 0); o = o " "; i += 2; continue }
+      if (ch == "$" && c[i + 1] == "(") { push("$(", 0); o = o "$("; i += 2; continue }
+      if (ch == "[") { push("[", 0); o = o " "; i++; continue }
+      if (ch == "(" && noheredoc && top != "${") { push("(a", 0); o = o " "; i++; continue }
+      if (ch == "(" && c[i + 1] == "(") { push("((", 0); o = o " "; i += 2; continue }
+      if (ch == "(") { push("(", 0); o = o ch; i++; continue }
+      if (ch == ")" && c[i + 1] == ")" && top == "((") { pop(); o = o " "; i += 2; continue }
+      if (ch == ")" && top == "(a") { pop(); o = o " "; i++; continue }
+      if (ch == "]" && top == "[") { pop(); o = o " "; i++; continue }
+      if (ch == "}" && top == "${") { pop(); o = o " "; i++; continue }
+      if (ch == ")" && casec[depth] > 0) { o = o ch; i++; continue }         # a case pattern terminator
+      if (ch == ")" && (top == "(" || top == "$(")) { pop(); o = o ch; i++; continue }
       if (ch == "`") {
-        if (depth > 0 && kind[depth] == "`") q = save[depth--]; else { kind[++depth] = "`"; save[depth] = 0 }
+        if (top == "`") pop(); else push("`", 0)
         o = o " "; i++; continue
       }
-      if (ch == "<" && c[i + 1] == "<" && c[i + 2] != "<" && (i == 1 || c[i - 1] != "<") && !arith) {
+      if (ch == "<" && c[i + 1] == "<" && c[i + 2] != "<" && (i == 1 || c[i - 1] != "<") && !noheredoc) {
         j = i + 2; dash = 0
         if (c[j] == "-") { dash = 1; j++ }
         while (c[j] == " " || c[j] == "\t") j++
@@ -117,19 +140,29 @@ strip_data() {
             while (j <= n && c[j] != qc) { w = w c[j]; j++ }
             j++; continue
           }
-          if (c[j] == "\\") { quoted = 1; j++; if (j <= n) { w = w c[j]; j++ }; continue }
+          if (c[j] == "\\") {
+            if (j == n) exit 3                   # a delimiter continued on the next line: refuse to guess
+            quoted = 1; j++; w = w c[j]; j++; continue
+          }
           w = w c[j]; j++
         }
         if (w != "") { pword[++npend] = w; pdash[npend] = dash; pq[npend] = quoted }
         o = o "<<"; i = j; continue
       }
+      if (ch ~ /[A-Za-z_]/ && (i == 1 || c[i - 1] !~ /[A-Za-z0-9_]/)) {   # a word: track case ... esac
+        j = i; w = ""
+        while (j <= n && c[j] ~ /[A-Za-z0-9_]/) { w = w c[j]; j++ }
+        if (w == "case") casec[depth]++
+        else if (w == "esac" && casec[depth] > 0) casec[depth]--
+        o = o w; i = j; continue
+      }
       o = o ch; i++
     }
-    if (cont) { printf "%s ", o; cont = 0 } else print o
+    if (cont) { printf "%s", o; cont = 0 } else print o
     if (!body && npend > 0) { body = 1; bodyq = q; q = (pq[1] ? 5 : 4) }
   }'
 }
-if ! STRIPPED=$(set -o pipefail; printf '%s' "$CMD" | strip_data); then
+if ! STRIPPED=$(printf '%s' "$CMD" | strip_data); then
   echo "Blocked: guard-commit.sh could not parse the command (awk failed). Failing closed." >&2
   exit 2
 fi
