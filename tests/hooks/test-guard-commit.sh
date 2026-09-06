@@ -905,6 +905,11 @@ run "git config core.editor from a var is allowed" 0 'git config core.editor $ED
 run "git config -f file user.name bot then commit" 2 'git config -f cfg user.name Claude && git commit -m x'
 run "git config --file user.name bot then commit" 2 'git config --file cfg user.name Claude && git commit -m x'
 run "git config -f file core.editor is allowed" 0 'git config -f cfg core.editor vim && git commit -m x'
+run "git config --type=path user.name bot then commit" 2 'git config --type=path user.name Claude && git commit -m x'
+run "git config --type=path user.email bot then commit" 2 'git config --type=path user.email bot@evil.com && git commit -m x'
+run "git config --file= user.name value from a substitution" 2 'git config --file=cfg user.name C"$(printf laude)" && git commit -m x'
+run "git config --file=.git/config core.editor is allowed" 0 'git config --file=.git/config core.editor vim && git commit -m x'
+run "git config --replace-all user.name human is allowed" 0 'git config --replace-all user.name Dennis && git commit -m x'
 run "heredoc marker before a substitution on the same line" 2 'cat <<EOF $(:
 git push -f origin main
 EOF
