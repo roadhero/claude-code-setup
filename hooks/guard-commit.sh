@@ -22,7 +22,9 @@
 # in the same call as a commit or push (`git config alias.st status; git commit`, `git commit -m x
 # alias.md`), a substitution inside `${...}` (`${v:-$(git describe)}`), a one-word quoted argument
 # that spells a flag or subcommand (`-m "--no-verify"`, `-m "eval"`, `tag -m "push" -f`), a quoted
-# identity inside a message (`-m "set user.name='claude'"`), a `-n` or `-f` on another
+# identity inside a message (`-m "set user.name='claude'"`), a committer/author name split
+# across concatenated quoted spans (`--author="$x""Claude"`; the enforced committer from repo
+# config is still checked), a `-n` or `-f` on another
 # command inside the same `$(...)` as a commit or push (`-m "$(git log -1 | head -n 1)"`),
 # `--force-if-includes` on its own, `-S<keyid>` with an
 # `n` in the key id, an unquoted `*`, `?`, `[`, or `{a,b}` in a commit or push (bash expands it
@@ -141,14 +143,19 @@ strip_data() {
     # `name()` is a function definition: what follows is a command (`f() case ...`)
     cmdpos = (kind[depth] == "(" && pushnr[depth] == NR && substr(line, pushpos[depth], i - pushpos[depth] + 1) ~ /^\([ \t]*\)$/)
     q = save[depth]; poppedkind = kind[depth]; depth--; poppos = i
-    if (q == 2) qbad = 1                         # the enclosing string held a substitution: never glue it
   }
   function refuse(why) { refused = 1; print "guard-commit.sh cannot classify this command: " why ". Rewrite it without that construct." > "/dev/stderr"; exit 3 }
   # a short quoted fragment is part of its word; a dropped span leaves an empty "" so the
   # argument still counts as one (`-m "two words" file` keeps `file` as the pathspec it is),
   # unless it held a substitution, whose own mark already stands there; an empty pair
   # (`commi""t`) is nothing, as in bash
-  function closeq() { if (!qbad && qb != "" && qb !~ /[ \t;&|*?\[{()<>`]/) o = o qb; else if (!qbad && (qb != "" || (qfresh && (i >= n || c[i + 1] ~ /[ \t;&|()<>`]/)))) o = o "\"\"" }
+  function closeq() {
+    if (qbad) return
+    if (qb != "" && qb !~ /[ \t;&|*?\[{()<>`]/) o = o qb          # a clean literal fragment glues to its word
+    else if (qb != "") o = o "\"\""                             # a fragment with a space/special: a placeholder word
+    else if (qdollar) o = o (qfresh ? "$ " : "$")               # a possibly-empty parameter: `$` word, spaced only at a word start
+    else if (!qmark && qfresh && (i >= n || c[i + 1] ~ /[ \t;&|()<>`]/)) o = o "\"\""   # truly empty quotes
+  }
   function droptests() { while (depth > 0 && kind[depth] == "[") depth-- }   # a test bracket cannot span a command
   function insubst(   k) { for (k = depth; k > 0; k--) if (kind[k] == "$(" || kind[k] == "`" || kind[k] == "<(") return 1; return 0 }
   function inframe(   k) { for (k = depth; k > 0; k--) if (kind[k] != "(") return 1; return 0 }   # anything but a bare subshell
@@ -193,13 +200,17 @@ strip_data() {
         if (ch == "\\") { if (q == 2) qb = qb c[i + 1]; i += 2; continue }
         if (q == 2 && ch == "\"") { q = 0; closeq(); i++; continue }
         if (inbrace() && ((ch == "$" && c[i + 1] == "(") || ch == "`")) refuse("a substitution inside ${...}")
-        if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { qbad = 1; push("$((", q); q = 0; o = o " "; i += 3; continue }
-        if (ch == "$" && c[i + 1] == "(") { qbad = 1; push("$(", q); q = 0; o = o "$( "; i += 2; continue }
+        if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { qmark = 1; push("$((", q); q = 0; o = o " "; i += 3; continue }
+        if (ch == "$" && c[i + 1] == "(") { qmark = 1; push("$(", q); q = 0; o = o "$( "; i += 2; continue }
         if (ch == "$" && c[i + 1] == "{") {
           if (c[i + 2] ~ /[ \t|]/) refuse("a ${ command; } substitution")
-          outer = !inbrace(); qbad = 1; push("${", q); q = 0; o = o " $"; if (outer) bmark = length(o); i += 2; continue
+          outer = !inbrace(); qdollar = 1; push("${", q); q = 0; if (outer) bmark = length(o); i += 2; continue
         }
-        if (ch == "`") { qbad = 1; push("`", q); q = 0; o = o " `"; i++; continue }
+        if (ch == "`") { qmark = 1; push("`", q); q = 0; o = o " `"; i++; continue }
+        # a bare `$name` / `$1` / special param inside "..." may expand to nothing, so it contributes
+        # nothing to the word: a flag glued after it (`"$x--force"`) stays a visible, bounded token
+        if (q == 2 && ch == "$" && c[i + 1] ~ /[A-Za-z_]/) { qdollar = 1; i += 2; while (i <= n && c[i] ~ /[A-Za-z0-9_]/) i++; continue }
+        if (q == 2 && ch == "$" && c[i + 1] ~ /[0-9@*#?!$-]/) { qdollar = 1; i += 2; continue }
         if (q == 2) qb = qb ch
         i++; continue
       }
@@ -209,9 +220,9 @@ strip_data() {
         if (i == n) { cont = 1; i++; continue }
         o = o ((c[i + 1] ~ /[;&|]/) ? " " : (c[i + 1] ~ /[*?\[{]/) ? "\"\"" : c[i + 1]); i += 2; continue
       }
-      if (ch == "$" && c[i + 1] == "\047") { q = 3; qb = ""; qbad = 0; qfresh = fresh(); i += 2; continue }
-      if (ch == "\047") { q = 1; qb = ""; qbad = 0; qfresh = fresh(); i++; continue }
-      if (ch == "\"") { q = 2; qb = ""; qbad = 0; qfresh = fresh(); i++; continue }
+      if (ch == "$" && c[i + 1] == "\047") { q = 3; qb = ""; qbad = 0; qmark = 0; qdollar = 0; qfresh = fresh(); i += 2; continue }
+      if (ch == "\047") { q = 1; qb = ""; qbad = 0; qmark = 0; qdollar = 0; qfresh = fresh(); i++; continue }
+      if (ch == "\"") { q = 2; qb = ""; qbad = 0; qmark = 0; qdollar = 0; qfresh = fresh(); i++; continue }
       # a comment starts only where a word starts: after whitespace, a control operator, or the `)`
       # that ends a subshell or an `((...))` command. The `)` of `$(...)` / `$((...))` or a closing
       # backtick ends a word, and `#` after it is part of that word.
@@ -413,6 +424,7 @@ while IFS= read -r SEG; do
         case "$T" in '$(') SUB=$((SUB + 1)); WANT=""; continue ;; esac
         if [ "$SUB" -gt 0 ]; then case "$T" in *')'*) SUB=$((SUB - 1)) ;; esac; continue; fi   # `)` glues to its word (`date)`)
         if [ -n "$WANT" ]; then WANT=""; continue; fi   # the value of the previous option, whatever its shape
+        [ "$T" = '$' ] && continue                     # a possibly-empty expansion word is not a definite pathspec
         case "$T" in
           *[\<\>]*)                                  # a redirection glued to a word (`tracked.txt>log`, `2>`): the word stays an argument
             case "$T" in *[\<\>]) WANT=1 ;; esac    # the operator's target is the next token, not a pathspec
