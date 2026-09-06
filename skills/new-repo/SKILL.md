@@ -31,9 +31,11 @@ Starting or initializing a new project, or a repo that's missing the standard sc
 
 **common/** (both stacks): `.gitignore` (secret patterns from §11), `CHANGELOG.md` (Keep-a-Changelog header), `docs/REQUIREMENTS.md`, `docs/ROADMAP.md`, and the seed ADR `docs/decisions/0001-foundation.md`.
 
-**android/**: `version.properties` (versionCode/versionName source of truth), `.github/workflows/gate.yml` (Spotless/detekt/lint/unit/Roborazzi/compileRelease), `.github/workflows/release.yml` (tag↔versionName parity → signed build → GitHub Release), `CLAUDE.md` (§19, Android-flavored).
+**android/**: `version.properties` (versionCode/versionName source of truth), `.github/workflows/gate.yml` (Spotless/detekt/lint/unit/Roborazzi/compileRelease), `.github/workflows/release.yml` (tag↔versionName parity → signed build → GitHub Release), `CLAUDE.md` (§19; the same generic template as web — the Android specifics go into §19 when you fill it in).
 
 **web/**: `.github/workflows/gate.yml` (format/lint/typecheck/test/build), `.github/workflows/release.yml` (tag↔version parity → publish), `CLAUDE.md` (§19, generic).
+
+Both `CLAUDE.md.tmpl` files are byte-identical copies of `templates/CLAUDE.project.md`; the repo's quality gate (`CLAUDE.md` §19.3) diffs them so they cannot drift.
 
 **`<STACK>/gitignore-extra.tmpl`** (both stacks): appended to `.gitignore` in step 3 — web adds `node_modules/`, `dist/`, `.next/`, `coverage/`, `*.tsbuildinfo`; android adds `.gradle/`, `build/`, `local.properties`, `*.apk`/`*.aab`, etc.
 

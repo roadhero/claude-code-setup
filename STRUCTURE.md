@@ -12,7 +12,7 @@
 │   └── compute.md            # C++/CUDA/parallel-Python
 ├── agents/                   # 15 GENERIC (global default)
 ├── hooks/
-│   ├── guard-commit.sh       # PreToolUse(Bash): block AI attribution, secrets, force-push, non-human committer
+│   ├── guard-commit.sh       # PreToolUse(Bash): block AI attribution, secrets, force-push, --no-verify, non-human committer
 │   └── format.sh             # PostToolUse(Edit|Write): auto-format by extension, all stacks
 ├── skills/new-repo/          # scaffolder
 └── docs/                     # on-demand reference (roster tables, §4 review checklist, error-recovery table, PR template, scaling) — the spine points here
@@ -26,6 +26,10 @@ Per-repo CLAUDE.md (§19 only; inherits spine + whichever rule pack your files p
    generic template   → templates/CLAUDE.project.md
    compute template   → templates/CLAUDE.project.compute.md
    filled example     → examples/CLAUDE.example-web.md (fictional web SaaS, shows §19 filled in)
+
+Repo-only, not installed:
+   tests/hooks/               # behavioral tests for both hooks (stdin JSON → exit code); run by the §19.3 gate
+   .github/workflows/gate.yml # CI: the §19.3 gate on every PR and on push to main
 ```
 
 ## Install (Mac)
@@ -76,12 +80,12 @@ Both settings files reference the hooks via `$HOME/.claude/hooks/...`, which the
 
 Four no-code extensions cover almost everything before you'd fork the binary:
 
-| Extension       | Format                                            | Location                            | Use case                                                                                           |
-| --------------- | ------------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------- |
-| **Subagents**   | Markdown with YAML frontmatter                    | `.claude/agents/*.md`               | New personas (e.g. `security-reviewer`, `performance-engineer`, `db-migration-specialist`)         |
-| **Skills**      | Markdown with YAML frontmatter + supporting files | `.claude/skills/<name>/SKILL.md`    | Reusable workflows (e.g. `release-prep`, `add-feature-flag`, `db-migration`, `dependency-upgrade`) |
-| **Hooks**       | Shell scripts                                     | `.claude/hooks/*.sh`                | Pre/post-tool-call validation, audit logging, custom permission gates                              |
-| **MCP servers** | Protocol-based (any language)                     | Configured in user/project settings | Tool integrations (issue tracker, error tracking service, package registry, custom databases)      |
+| Extension       | Format                                            | Location                            | Use case                                                                                                                                                                                                                                                                                                                                 |
+| --------------- | ------------------------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Subagents**   | Markdown with YAML frontmatter                    | `.claude/agents/*.md`               | New personas (e.g. `security-reviewer`, `performance-engineer`, `db-migration-specialist`)                                                                                                                                                                                                                                               |
+| **Skills**      | Markdown with YAML frontmatter + supporting files | `.claude/skills/<name>/SKILL.md`    | Reusable workflows (e.g. `release-prep`, `add-feature-flag`, `db-migration`, `dependency-upgrade`)                                                                                                                                                                                                                                       |
+| **Hooks**       | Shell scripts                                     | `.claude/hooks/*.sh`                | Pre/post-tool-call validation, audit logging, custom permission gates. Rule of thumb: a MUST / NEVER you catch yourself restating in a second file belongs here (or behind plan mode), not in more prose — `guard-commit.sh` is the pattern. A hook inspects or formats the tool's own target; it never creates or rewrites other files. |
+| **MCP servers** | Protocol-based (any language)                     | Configured in user/project settings | Tool integrations (issue tracker, error tracking service, package registry, custom databases)                                                                                                                                                                                                                                            |
 
 If a use case fits none of these, report the gap upstream rather than working around it — forking the binary trades extensibility for an ownership burden, and every Claude Code release becomes a merge conflict.
 
