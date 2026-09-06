@@ -343,7 +343,7 @@ run "message with ; then a plain push"       0 'git commit -m "a;b" && git push 
 run "ANSI-C hex escape in the subcommand"    2 'git $'"'"'\x70ush'"'"' --force origin main'
 run "ANSI-C octal escape in the subcommand"  2 'git $'"'"'\160ush'"'"' --force origin main'
 run "ANSI-C hex escape in the flag"          2 'git push $'"'"'\x2d\x66'"'"' origin main'
-run "ANSI-C unicode escape"                  2 'git $'"'"'push'"'"' --force origin main'
+run "ANSI-C unicode escape"                  2 'git $'"'"'\u0070ush'"'"' --force origin main'
 run "commit -F is not a force flag"          0 'git commit -m "push" -F /dev/null'
 DENSE=$(for _ in $(seq 1 600); do printf '  "key": "value",\n'; done)
 run "quote-dense non-git heredoc is fast"    0 "cat > package.json <<'EOF'
