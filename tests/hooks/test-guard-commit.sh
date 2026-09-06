@@ -8,6 +8,7 @@ set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 SELF="$HERE/$(basename "$0")"
 HOOK="$HERE/../../hooks/guard-commit.sh"
+BASH=/bin/bash; [ -x "$BASH" ] || BASH=bash   # the macOS system bash 3.2 when present, whatever is on PATH otherwise
 PASS=0
 FAIL=0
 TMP=$(mktemp -d)
@@ -32,19 +33,19 @@ record() {
 # run <name> <expected-exit> <bash command the agent is about to run>
 # Never call this inside a subshell: PASS/FAIL must be counted in this shell.
 run() {
-  printf '%s' "$3" | jq -Rs '{tool_input:{command:.}}' | bash "$HOOK" >/dev/null 2>"$TMP/err"
+  printf '%s' "$3" | jq -Rs '{tool_input:{command:.}}' | "$BASH" "$HOOK" >/dev/null 2>"$TMP/err"
   record "$1" "$2" $? "$3"
 }
 
 # run_raw <name> <expected-exit> <raw stdin for the hook>
 run_raw() {
-  printf '%s' "$3" | bash "$HOOK" >/dev/null 2>"$TMP/err"
+  printf '%s' "$3" | "$BASH" "$HOOK" >/dev/null 2>"$TMP/err"
   record "$1" "$2" $? "$3"
 }
 
 # run_err <name> <expected-exit> <stderr must contain> <command>: also asserts exactly one "cannot classify" line
 run_err() {
-  printf '%s' "$4" | jq -Rs '{tool_input:{command:.}}' | bash "$HOOK" >"$TMP/out" 2>"$TMP/err"
+  printf '%s' "$4" | jq -Rs '{tool_input:{command:.}}' | "$BASH" "$HOOK" >"$TMP/out" 2>"$TMP/err"
   rc=$?
   if grep -qF -- "$3" "$TMP/err" && [ "$(grep -c 'cannot classify' "$TMP/err")" -eq 1 ] && [ ! -s "$TMP/out" ]; then
     record "$1" "$2" "$rc" "$4"
@@ -495,6 +496,69 @@ run "alias via git config, same call"        2 'git config alias.fp "push --forc
 run "alias for a no-verify commit"           2 'git -c alias.nv="commit --no-verify" nv -m x'
 run "alias lookup next to a commit (documented false block)" 2 'git config --get alias.st; git commit -m x'
 
+# --- only a real command boundary splits a segment ---------------------------------------------
+run "escaped ; in a -c value"                2 'git -c a.b=x\;y push -f origin main'
+run "escaped ; in an unquoted message"       2 'git commit -m msg\;more --no-verify'
+run "escaped & in a -c value"                2 'git -c a.b=x\&y push -f origin main'
+run "escaped | in a -c value"                2 'git -c a.b=x\|y push -f origin main'
+run "2>&1 before --force"                    2 'git push origin main 2>&1 --force'
+run "2>&1 before --force-with-lease"         2 'git push origin main 2>&1 --force-with-lease'
+run "2>&1 before +refspec"                   2 'git push origin 2>&1 +main'
+run ">& before --force"                      2 'git push origin main >&/dev/null --force'
+run "<&- before --force"                     2 'git push origin main <&- --force'
+run "3>&2 before --force"                    2 'git push origin main 3>&2 --force'
+run "&> before --force"                      2 'git push origin main &>/dev/null --force'
+run ">| before --force"                      2 'git push origin main >|/tmp/log --force'
+run "2>&1 before --no-verify"                2 'git commit -m x 2>&1 --no-verify'
+run "2>&1 before -n"                         2 'git commit -m x 2>&1 -n'
+run ">| before --no-verify"                  2 'git commit -m x >|/tmp/log --no-verify'
+run "2>&1 then a real ; then plain push"     0 'git commit -m x 2>&1; git push origin feat/x'
+run "wrapper directly inside a subshell"     2 '(eval "git push -f origin main")'
+run "bash -c directly inside a subshell"     2 '(bash -c "git push -f origin main")'
+run "trap directly inside a subshell"        2 '(trap "git push -f origin main" EXIT; true)'
+run "eval directly inside \$( )"             2 'x=$(eval "git push -f origin main")'
+run "bash -c directly inside \$( )"          2 'x=$(bash -c "git push -f origin main")'
+run "bash heredoc directly inside \$( )"     2 'x=$(bash <<'"'"'EOF'"'"'
+git push -f origin main
+EOF
+)'
+run "bash 2>&1 -c wrapper"                   2 'bash 2>&1 -c "git push -f origin main"'
+run "bash 3>&2 -c wrapper"                   2 'bash 3>&2 -c "git commit --no-verify -m x"'
+run "sh -c right after ("                    2 '(sh -c "git push --force origin main")'
+run "bash heredoc right after ("             2 '(bash <<'"'"'EOF'"'"'
+git push --force origin main
+EOF
+)'
+run "pipe into (bash)"                       2 'echo "git push --force origin main" | (bash)'
+run "sh -c right after \$("                  2 'x=$(sh -c "git push --force origin main")'
+run "here-string bash inside a message substitution" 2 'git commit -m "$(bash <<<"git push --force origin main")"'
+run "eval inside a message substitution"     2 'git commit -m "$(eval "git push --force origin main")"'
+run "bash -c right after a case pattern"     2 'case x in x)bash -c "git push --force origin main";; esac'
+run "bare bash then 2>/dev/null"             2 'echo "git push --force origin main" | bash 2>/dev/null'
+run "bare bash then >/dev/null 2>&1"         2 'echo "git push --force origin main" | bash >/dev/null 2>&1'
+run "bare bash then > log"                   2 'echo "git push --force origin main" | bash > log'
+run "bare bash then 2>&1 | tee"              2 'echo "git push --force origin main" | bash 2>&1 | tee log'
+run "heredoc glued to bash"                  2 'bash<<'"'"'EOF'"'"'
+git push --force origin main
+EOF'
+run "here-string glued to bash"              2 'bash<<<"git push --force origin main"'
+run "file glued to sh then commit"           2 'sh<run.sh; git commit -m x'
+run "env -i -S"                              2 'env -i -S "bash -c '"'"'git push --force origin main'"'"'"'
+run "env -u X -S"                            2 'env -u X -S "bash -c '"'"'git push --force origin main'"'"'"'
+run "env FOO=1 -S"                           2 'env FOO=1 -S "bash -c '"'"'git push --force origin main'"'"'"'
+run "env --split-string"                     2 'env --split-string="bash -c '"'"'git push --force origin main'"'"'"'
+run "env with an assignment then a signed commit" 0 'env GIT_EDITOR=true git commit -S -m x'
+run "shebang write then commit is allowed"   0 'echo '"'"'#!/bin/bash'"'"' > run.sh && git add run.sh && git commit -m x'
+run "SHELL assignment then commit is allowed" 0 'export SHELL=/bin/zsh && git commit -m x'
+run "bash >out script.sh is allowed"         0 'bash >out script.sh && git commit -m x'
+run "which bash then commit (documented false block)" 2 'which bash && git commit -m x'
+run "git add zsh bash fish (documented false block)" 2 'git add fish bash zsh && git commit -m "add shell configs"'
+run "message mentioning alias.md is allowed" 0 'git commit -m "add alias.md"'
+run "heredoc body mentioning an alias then commit" 0 'cat > notes.md <<'"'"'EOF'"'"'
+use git config alias.co checkout once
+EOF
+git commit -m x'
+
 # --- process substitution is a word of the enclosing command ------------------------------------
 run "pipe inside <( ) before --force-with-lease" 2 'git push origin main <(git log --oneline | head -5) --force-with-lease'
 run "; inside <( ) before --force"           2 'git push origin main <(echo a;echo b) --force'
@@ -581,6 +645,11 @@ run "dirty tracked secret, commit --all"     2 'git commit --all -m "x"'
 run "dirty tracked secret, -a then ;"        2 'git commit -m x -a;git push origin x'
 run "dirty tracked secret, pathspec commit"  2 'git commit -m "x" tracked.txt'
 run "dirty tracked secret, --include"        2 'git commit --include tracked.txt -m "x"'
+run "dirty tracked secret, 2>&1 then -a"     2 'git commit -m x 2>&1 -a'
+run "dirty tracked secret, 2>&1 then --all"  2 'git commit -m x 2>&1 --all'
+run "dirty tracked secret, escaped ; then -a" 2 'git commit -m x\;y -a'
+run "dirty tracked secret, extension-less pathspec" 2 'git commit -m "x" tracked'
+run "dirty tracked secret, -m value is not a pathspec" 0 'git commit -m fix'
 run "dirty tracked secret, add && commit"    2 'git add tracked.txt && git commit -m "x"'
 git checkout -q -- tracked.txt
 

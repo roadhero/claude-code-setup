@@ -9,16 +9,16 @@
 # accepted limits: variable indirection (`p=push; git $p -f`), git aliases defined in an earlier
 # call, `git config core.hooksPath` set in an earlier call, flags fed through a pipe (`xargs`),
 # unique-prefix long options (`--no-veri`), a word or flag spliced by any expansion or substitution
-# (`git pu${x}sh`, `git pu$(echo s)h`, `--for$(echo c)e`), a bare pathspec on `git commit` (only `-a`, `-i`, `-o`
-# and pathspec-looking tokens trigger the working-tree scan), and the committer and secrets
+# (`git pu${x}sh`, `git pu$(echo s)h`, `--for$(echo c)e`), and the committer and secrets
 # checks reading the current directory's repo (`git -C elsewhere commit`), a `filter.*.clean`
 # set in an earlier call (it rewrites the working-tree diff the guard reads), a script body run
 # by name (`bash run.sh`, `source ./run.sh`), and git run from another interpreter
 # (`python3 -c "os.system('git push -f')"`, `perl -e`, `node -e`, awk's `system()`), whose
 # program is data to this walk. Known false blocks (safe direction): a shell wrapper anywhere in
 # the same call as a plain commit or push (`git commit -m x && bash -c "echo done"`,
-# `bash -x build.sh && git commit -m x`), `source`/`.` of a process substitution, an alias
-# defined in the same call as a commit or push (`git config alias.st status; git commit`), a
+# `bash -x build.sh && git commit -m x`, `which bash && git commit -m x`, `git add zsh bash fish`
+# in a dotfiles repo), `source`/`.` of a process substitution, any alias definition in the same
+# call as a commit or push (`git config alias.st status; git commit`), a
 # one-word quoted argument that spells a flag or
 # subcommand (`-m "--no-verify"`, `-m "eval"`, `tag -m "push" -f`), a `-n` or `-f` on another
 # command inside the same `$(...)` as a commit or push (`-m "$(git log -1 | head -n 1)"`),
@@ -37,8 +37,8 @@ INPUT=$(cat) || { echo "Blocked: guard-commit.sh could not read its stdin. Faili
 
 # has <ERE> <text> (case-insensitive) / hasc (case-sensitive): grep that treats any status over 1
 # as a tool failure and fails closed, so a broken grep can never read as "no match".
-has()  { grep -qiE "$1" <<<"$2"; local rc=$?; [ "$rc" -gt 1 ] && { echo "Blocked: guard-commit.sh grep failed. Failing closed." >&2; exit 2; }; return "$rc"; }
-hasc() { grep -qE  "$1" <<<"$2"; local rc=$?; [ "$rc" -gt 1 ] && { echo "Blocked: guard-commit.sh grep failed. Failing closed." >&2; exit 2; }; return "$rc"; }
+has()  { grep -qiE -e "$1" <<<"$2"; local rc=$?; [ "$rc" -gt 1 ] && { echo "Blocked: guard-commit.sh grep failed. Failing closed." >&2; exit 2; }; return "$rc"; }
+hasc() { grep -qE  -e "$1" <<<"$2"; local rc=$?; [ "$rc" -gt 1 ] && { echo "Blocked: guard-commit.sh grep failed. Failing closed." >&2; exit 2; }; return "$rc"; }
 
 # Fast path: this guard only concerns `git commit` / `git push`. If the payload mentions
 # neither, allow immediately — so a missing jq (below) never blocks unrelated Bash (ls/cat/grep).
@@ -173,7 +173,7 @@ strip_data() {
         if (ch == "\\") { if (q == 2) qb = qb c[i + 1]; i += 2; continue }
         if (q == 2 && ch == "\"") { q = 0; closeq(); i++; continue }
         if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { qbad = 1; push("$((", q); q = 0; o = o " "; i += 3; continue }
-        if (ch == "$" && c[i + 1] == "(") { qbad = 1; push("$(", q); q = 0; o = o "$("; i += 2; continue }
+        if (ch == "$" && c[i + 1] == "(") { qbad = 1; push("$(", q); q = 0; o = o "$( "; i += 2; continue }
         if (ch == "$" && c[i + 1] == "{") { qbad = 1; push("${", q); q = 0; o = o " "; i += 2; continue }
         if (ch == "`") { qbad = 1; push("`", q); q = 0; o = o " "; i++; continue }
         if (q == 2) qb = qb ch
@@ -181,7 +181,10 @@ strip_data() {
       }
       top = (depth > 0) ? kind[depth] : ""
       noheredoc = (top == "((" || top == "$((" || top == "[" || top == "$[" || top == "(a" || top == "${")
-      if (ch == "\\") { if (i == n) { cont = 1; i++; continue } o = o c[i + 1]; i += 2; continue }   # `\-f` is `-f`
+      if (ch == "\\") {                       # `\-f` is `-f`; an escaped separator is text, never a boundary
+        if (i == n) { cont = 1; i++; continue }
+        o = o ((c[i + 1] ~ /[;&|]/) ? " " : c[i + 1]); i += 2; continue
+      }
       if (ch == "$" && c[i + 1] == "\047") { q = 3; qb = ""; qbad = 0; i += 2; continue }
       if (ch == "\047") { q = 1; qb = ""; qbad = 0; i++; continue }
       if (ch == "\"") { q = 2; qb = ""; qbad = 0; i++; continue }
@@ -190,23 +193,25 @@ strip_data() {
       # backtick ends a word, and `#` after it is part of that word.
       if (ch == "#" && !noheredoc && ((i == 1 && !joined) || (i > 1 && c[i - 1] ~ /[ \t;&|(]/) || (c[i - 1] == ")" && poppos == i - 1 && (poppedkind == "(" || poppedkind == "((")))) break
       # `;` `&` `|` separate commands only in code; inside an expansion or arithmetic they are text
+      # `&` in `2>&1` `>&` `&>` `<&-` and `|` in `>|` belong to a redirection operator, not a boundary
+      if ((ch == "&" && (c[i - 1] == "<" || c[i - 1] == ">" || c[i + 1] == ">")) || (ch == "|" && c[i - 1] == ">")) { o = o " "; i++; continue }
       if (ch == ";" || ch == "&" || ch == "|") {
         if (top == "${" || top == "((" || top == "$((" || top == "(a" || top == "$[") { o = o " "; i++; continue }
         # inside `$(...)` a separator ends a command OF THE SUBSTITUTION, never the enclosing one
         # (`git push origin "$(a | b)" --force` is one push): a space keeps the flag with its git
         if (insubst()) { droptests(); cmdpos = 1; o = o " "; i++; continue }
-        droptests(); cmdpos = 1; o = o ch; i++; continue
+        droptests(); cmdpos = 1; o = o "\001"; i++; continue   # a REAL boundary: a byte no command contains
       }
       if (ch == "{" || ch == "!") { cmdpos = 1; o = o ch; i++; continue }
       if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { push("$((", 0); o = o " "; i += 3; continue }
       if (ch == "$" && c[i + 1] == "[") { push("$[", 0); o = o " "; i += 2; continue }
       if (ch == "$" && c[i + 1] == "{") { push("${", 0); o = o " "; i += 2; continue }
-      if (ch == "$" && c[i + 1] == "(") { push("$(", 0); o = o "$("; i += 2; continue }
+      if (ch == "$" && c[i + 1] == "(") { push("$(", 0); o = o "$( "; i += 2; continue }
       if (ch == "[") { push("[", 0); o = o " "; i++; continue }
       if ((ch == "<" || ch == ">") && c[i + 1] == "(") { push("<(", 0); o = o ch " "; i += 2; continue }   # process substitution: a word
       if (ch == "(" && noheredoc && top != "${") { push("(a", 0); o = o " "; i++; continue }
       if (ch == "(" && c[i + 1] == "(") { push("((", 0); o = o " "; i += 2; continue }
-      if (ch == "(") { push("(", 0); o = o ch; i++; continue }
+      if (ch == "(") { push("(", 0); o = o "( "; i++; continue }
       if (ch == ")" && c[i + 1] == ")" && (top == "((" || top == "$((")) { pop(); poppos = i + 1; o = o " "; i += 2; continue }
       if (ch == ")" && top == "(a") { pop(); o = o " "; i++; continue }
       if (ch == "]" && (top == "[" || top == "$[")) { pop(); o = o " "; i++; continue }
@@ -216,9 +221,9 @@ strip_data() {
           while (depth > 0 && kind[depth] != "(" && kind[depth] != "$(" && kind[depth] != "<(" && kind[depth] != "`" && kind[depth] != "((" && kind[depth] != "$((") depth--   # drops [ $[ ${ (a
           top = (depth > 0) ? kind[depth] : ""
         }
-        if (casec[depth] > 0) { o = o ch; i++; cmdpos = 1; continue }   # a case pattern terminator
-        if (top == "(" || top == "$(" || top == "<(") { pop(); o = o ch; i++; continue }
-        o = o ch; i++; continue
+        if (casec[depth] > 0) { o = o ch " "; i++; cmdpos = 1; continue }   # a case pattern terminator
+        if (top == "(" || top == "$(" || top == "<(") { pop(); o = o ch " "; i++; continue }
+        o = o ch " "; i++; continue
       }
       if (ch == "`") {
         if (top == "`") pop(); else push("`", 0)
@@ -290,7 +295,8 @@ fi
 
 # Each segment costs a few greps; thousands of `;`-separated segments could outlast the hook
 # timeout, and a timed-out PreToolUse hook does not block. No real command has hundreds.
-if ! SEGMENTS=$(tr ';&|' '\n' <<<"$STRIPPED") || ! NSEP=$(tr -cd ';&|\n' <<<"$STRIPPED" | wc -c) || ! [ "$NSEP" -eq "$NSEP" ] 2>/dev/null; then
+# The walker marks every real command boundary with \001 (a `;` `&` `|` it emits as text is not one).
+if ! SEGMENTS=$(tr '\001' '\n' <<<"$STRIPPED") || ! NSEP=$(tr -cd '\001\n' <<<"$STRIPPED" | wc -c) || ! [ "$NSEP" -eq "$NSEP" ] 2>/dev/null; then
   echo "Blocked: guard-commit.sh could not split the command into segments (tr/wc failed). Failing closed." >&2
   exit 2
 fi
@@ -308,11 +314,15 @@ fi
 # `eval` and `trap` run text by definition; `source`/`.` of a process substitution reads text;
 # `env -S` splits a string into a command. Refuse rather than guess: the unwrapped form, in its
 # own call, is always available to the agent.
-SHW='(^|[[:space:]])([^[:space:]]*/)?(ba|z|da|k|c|tc|fi|a|mk|ya)?sh'
-WRAPPER="${SHW}[[:space:]]*[)}]*[[:space:]]*\$|${SHW}[[:space:]]+-|${SHW}[[:space:]].*<|(^|[[:space:]])(eval|trap)([[:space:]]|\$)|(^|[[:space:]])(source|\.)[[:space:]].*<|(^|[[:space:]])env[[:space:]]+-[A-Za-z]*S"
+SHW='(^|[[:space:]()])([^[:space:]#!=]*/)?(ba|z|da|k|c|tc|fi|a|mk|ya)?sh'   # a shell, by name or path; `#!/bin/bash` and `x=/bin/sh` are not commands
+RD='([[:space:]]*[0-9]*[<>]+[[:space:]]*[^[:space:]<>]*)*'                          # redirection words are not arguments
+ENVOPT='([[:space:]]+(-[A-Za-z]*|-u[[:space:]]+[^[:space:]]+|--[A-Za-z-]+(=[^[:space:]]*)?|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*))*'
+# every alternative supplies its own right boundary, so `shasum`, `shellcheck`, `bashful` never match
+WRAPPER="${SHW}${RD}[[:space:]]*[)}]*[[:space:]]*\$|${SHW}${RD}[[:space:]]+-|${SHW}[[:space:]]*[0-9]*<|${SHW}[[:space:]].*<|(^|[[:space:]()])(eval|trap)([[:space:]]|\$)|(^|[[:space:]()])(source|\.)[[:space:]].*<|(^|[[:space:]()])env${ENVOPT}[[:space:]]+(-[A-Za-z]*S|--split-string)"
 
-# An alias defined in the same call renames a subcommand out of reach of every check below.
-if has '(^|[^[:alnum:]_])alias\.' "$CMD"; then
+# An alias defined in the same call renames a subcommand out of reach of every check below
+# (`git -c alias.fp=push fp --force`; the `-c` value is quoted data, so the raw command is read too).
+if has '(^|[^[:alnum:]_])alias\.' "$STRIPPED" || has '-c[[:space:]]*["'"'"']?alias\.' "$CMD"; then
   echo "Blocked: a git alias defined in the same call as a commit/push cannot be inspected. Define it separately, or use the full subcommand." >&2; exit 2
 fi
 
@@ -326,8 +336,22 @@ while IFS= read -r SEG; do
   has 'git.*[[:space:]]commit([^[:alnum:]]|$)' "$SEG" && SEG_COMMIT=1
   has 'git.*[[:space:]]push([^[:alnum:]]|$)' "$SEG" && SEG_PUSH=1
   has 'git.*[[:space:]]add([^[:alnum:]]|$)' "$SEG" && HAS_ADD=1
-  # a commit with -a/-i/-o or a pathspec-looking token commits working-tree content, not just the index
-  if [ -n "$SEG_COMMIT" ] && has '[[:space:]]commit.*[[:space:]](-[A-Za-z]*[aio][A-Za-z]*|--all|--include|--only|[^-[:space:]][^[:space:]]*[./][^[:space:]]*)([^[:alnum:]]|$)' "$SEG"; then HAS_WORKTREE=1; fi
+  # a commit with -a/-i/-o, or any bare token after the subcommand that is not the value of a
+  # message-like option, commits working-tree content, not just the index: scan it
+  if [ -n "$SEG_COMMIT" ]; then
+    if has '[[:space:]]commit.*[[:space:]](-[A-Za-z]*[aio][A-Za-z]*|--all|--include|--only)([^[:alnum:]]|$)' "$SEG"; then HAS_WORKTREE=1; fi
+    PREV=""; SEEN=""
+    for T in $SEG; do   # (unquoted on purpose: the walker already removed every quote)
+      if [ -n "$SEEN" ]; then
+        case "$T" in
+          -*) ;;
+          *) case "$PREV" in -m|-F|-C|-c|-S|-t|--message|--file|--author|--date|--trailer|--template|--fixup|--squash|--reedit-message|--reuse-message|--cleanup|--gpg-sign) ;; *) HAS_WORKTREE=1 ;; esac ;;
+        esac
+      fi
+      [ "$T" = commit ] && SEEN=1
+      PREV=$T
+    done
+  fi
   [ -n "$SEG_COMMIT" ] && IS_COMMIT=1
   [ -n "$SEG_PUSH" ] && HAS_PUSH=1
   [ -z "$SEG_COMMIT$SEG_PUSH" ] && continue
