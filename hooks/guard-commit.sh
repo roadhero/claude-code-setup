@@ -17,16 +17,17 @@
 # program is data to this walk. Known false blocks (safe direction): a shell wrapper anywhere in
 # the same call as a plain commit or push (`git commit -m x && bash -c "echo done"`,
 # `bash -x build.sh && git commit -m x`, `which bash && git commit -m x`, `git add zsh bash fish`
-# in a dotfiles repo), `source`/`.` of a process substitution, any alias definition in the same
-# call as a commit or push (`git config alias.st status; git commit`), a
-# one-word quoted argument that spells a flag or
-# subcommand (`-m "--no-verify"`, `-m "eval"`, `tag -m "push" -f`), a `-n` or `-f` on another
+# in a dotfiles repo), `source`/`.` of a process substitution, any mention of `alias.` outside quotes
+# in the same call as a commit or push (`git config alias.st status; git commit`, `git commit -m x
+# alias.md`), a substitution inside `${...}` (`${v:-$(git describe)}`), a one-word quoted argument
+# that spells a flag or subcommand (`-m "--no-verify"`, `-m "eval"`, `tag -m "push" -f`), a quoted
+# identity inside a message (`-m "set user.name='claude'"`), a `-n` or `-f` on another
 # command inside the same `$(...)` as a commit or push (`-m "$(git log -1 | head -n 1)"`),
 # `--force-if-includes` on its own, `-S<keyid>` with an
 # `n` in the key id, an unquoted `*`, `?`, `[`, or `{a,b}` in a commit or push (bash expands it
 # when the command runs; quote it, or list the files), an expansion between a shell and its
-# option (`bash $a -c`: bash may see nothing there), an unquoted commit message naming a tool
-# after a committer override on the same line, a commit message mentioning `-c core.hooksPath`, a diff over 16 MB (commit
+# option (`bash $a -c`: bash may see nothing there), git config passed through the environment in
+# a commit call (`--config-env`, `GIT_CONFIG_*`), a commit message mentioning `-c core.hooksPath`, a diff over 16 MB (commit
 # large binaries separately, or via LFS), and an ANSI-C numeric escape (`$'\033[0m'`) in a call
 # that also mentions git, commit, or push. A call whose every one of those words is itself
 # numerically encoded (`$'\x67it' $'\x70ush'`) is the splice limit above.
@@ -126,8 +127,11 @@ fi
 strip_data() {
   awk '
   # q: 0 code, 1 single quotes, 2 double quotes, 3 $'"'"'...'"'"', 4 unquoted heredoc body, 5 quoted heredoc body
-  # kind[]: "(" subshell, "$(" substitution, "`", "((" arithmetic command, "$((" arithmetic expansion,
-  #         "(a" paren inside arithmetic, "[" subscript/test, "${" parameter expansion. save[]: the q to restore on pop.
+  # kind[]: "(" subshell, "$(" substitution, "`", "<(" process substitution, "((" arithmetic command,
+  #         "$((" arithmetic expansion, "(a" paren inside arithmetic, "[" test bracket, "[s" array
+  #         subscript, "${" parameter expansion. save[]: the q to restore on pop.
+  # A `${...}` is one word whose text bash may replace with nothing at all, so its interior is
+  # dropped and a lone `$` stands for it (`${a[@]}` is `$`); a substitution inside it is refused.
   function push(k, sq) { kind[++depth] = k; save[depth] = sq; casec[depth] = 0; pendat[depth] = npend; pushnr[depth] = NR; pushpos[depth] = i; cmdpos = 1 }
   function pop() {
     if (npend > pendat[depth]) refuse("a heredoc marker inside a substitution that closes on the same line")
@@ -140,10 +144,11 @@ strip_data() {
   # a short quoted fragment is part of its word; a dropped span leaves an empty "" so the
   # argument still counts as one (`-m "two words" file` keeps `file` as the pathspec it is);
   # an empty pair (`commi""t`) is nothing, as in bash
-  function closeq() { if (!qbad && qb != "" && qb !~ /[ \t;&|*?\[{]/) o = o qb; else if (qbad || qb != "") o = o "\"\"" }
+  function closeq() { if (!qbad && qb != "" && qb !~ /[ \t;&|*?\[{()<>]/) o = o qb; else if (qbad) o = o "\"$\""; else if (qb != "") o = o "\"\"" }
   function droptests() { while (depth > 0 && kind[depth] == "[") depth-- }   # a test bracket cannot span a command
   function insubst(   k) { for (k = depth; k > 0; k--) if (kind[k] == "$(" || kind[k] == "`" || kind[k] == "<(") return 1; return 0 }
   function inframe(   k) { for (k = depth; k > 0; k--) if (kind[k] != "(") return 1; return 0 }   # anything but a bare subshell
+  function inbrace(   k) { for (k = depth; k > 0; k--) if (kind[k] == "${") return 1; return 0 }   # inside a `${...}` word
   BEGIN { q = 0; depth = 0; npend = 0; body = 0; cont = 0; casec[0] = 0; poppos = -1; poppedkind = ""; cmdpos = 1; kwlead = 0 }
   {
     line = $0
@@ -164,6 +169,7 @@ strip_data() {
     }
     n = split(line, c, "")
     o = ""
+    bmark = 0                                  # where the current `${...}` word began on this line
     i = 1
     poppos = -1
     joined = cont; cont = 0                    # this line continues the previous one: no word starts at column 1
@@ -182,8 +188,11 @@ strip_data() {
         if (q == 2 && ch == "\"") { q = 0; closeq(); i++; continue }
         if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { qbad = 1; push("$((", q); q = 0; o = o " "; i += 3; continue }
         if (ch == "$" && c[i + 1] == "(") { qbad = 1; push("$(", q); q = 0; o = o "$( "; i += 2; continue }
-        if (ch == "$" && c[i + 1] == "{") { qbad = 1; push("${", q); q = 0; o = o " "; i += 2; continue }
-        if (ch == "`") { qbad = 1; push("`", q); q = 0; o = o " "; i++; continue }
+        if (ch == "$" && c[i + 1] == "{") {
+          if (c[i + 2] ~ /[ \t|]/) refuse("a ${ command; } substitution")
+          outer = !inbrace(); qbad = 1; push("${", q); q = 0; o = o " $"; if (outer) bmark = length(o); i += 2; continue
+        }
+        if (ch == "`") { qbad = 1; push("`", q); q = 0; o = o " `"; i++; continue }
         if (q == 2) qb = qb ch
         i++; continue
       }
@@ -211,13 +220,23 @@ strip_data() {
         droptests(); cmdpos = 1; o = o "\001"; i++; continue   # a REAL boundary: a byte no command contains
       }
       if (ch == "{" || ch == "!") { cmdpos = 1; o = o ch; i++; continue }
+      if (inbrace() && ((ch == "$" && c[i + 1] == "(") || ch == "`")) refuse("a substitution inside ${...}")
       if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { push("$((", 0); o = o " "; i += 3; continue }
       if (ch == "$" && c[i + 1] == "[") { push("$[", 0); o = o " "; i += 2; continue }
-      if (ch == "$" && c[i + 1] == "{") { push("${", 0); o = o " $"; i += 2; continue }   # the `$` marks a word that may expand to nothing
+      if (ch == "$" && c[i + 1] == "{") {                  # the `$` stands for the whole word, which may expand to nothing
+        if (c[i + 2] ~ /[ \t|]/) refuse("a ${ command; } substitution")
+        outer = !inbrace(); push("${", 0); o = o " $"; if (outer) bmark = length(o); i += 2; continue
+      }
       if (ch == "$" && c[i + 1] == "(") { push("$(", 0); o = o "$( "; i += 2; continue }
       # `[` in code opens a test bracket; inside an expansion or arithmetic it is an array subscript
       # (`${a[1|2]}`), whose `|` and `&` are text, never a command boundary
-      if (ch == "[") { push((noheredoc && top != "[") ? "[s" : "[", 0); o = o " "; i++; continue }
+      if (ch == "[") {
+        if (noheredoc && top != "[") { push("[s", 0); o = o " " }
+        else if (cmdpos) { push("[", 0); o = o " " }
+        else if (c[i - 1] ~ /[A-Za-z0-9_]/) { push("[s", 0); o = o ch }   # `a[1<<2]=1`: a subscript, its `<<` a shift; kept visible as a pattern too
+        else o = o ch                         # `-[n]` is a pattern bash expands when it runs
+        i++; continue
+      }
       if ((ch == "<" || ch == ">") && c[i + 1] == "(") { push("<(", 0); o = o ch " "; i += 2; continue }   # process substitution: a word
       if (ch == "(" && noheredoc && top != "${") { push("(a", 0); o = o " "; i++; continue }
       if (ch == "(" && c[i + 1] == "(") { push("((", 0); o = o " "; i += 2; continue }
@@ -225,10 +244,14 @@ strip_data() {
       if (ch == ")" && c[i + 1] == ")" && (top == "((" || top == "$((")) { pop(); poppos = i + 1; o = o " "; i += 2; continue }
       if (ch == ")" && top == "(a") { pop(); o = o " "; i++; continue }
       if (ch == "]" && (top == "[" || top == "[s" || top == "$[")) { pop(); o = o " "; i++; continue }
-      if (ch == "}" && top == "${") { pop(); o = o " "; i++; continue }
+      if (ch == "}" && top == "${") { pop(); if (!inbrace()) o = substr(o, 1, bmark) " "; i++; continue }   # the word is its `$`
+      if (ch == ")" && inbrace()) { o = o ch; i++; continue }   # text inside `${...}`, like `;` `&` `|`
       if (ch == ")") {
-        if (top == "[" || top == "[s" || top == "${") {   # a frame `)` cannot close: unwind to the `(` it does close
-          while (depth > 0 && kind[depth] != "(" && kind[depth] != "$(" && kind[depth] != "<(" && kind[depth] != "`" && kind[depth] != "((" && kind[depth] != "$((") depth--   # drops [ $[ ${ (a
+        if (top == "[" || top == "[s") {         # a frame `)` cannot close: unwind to the `(` it does close
+          while (depth > 0 && kind[depth] != "(" && kind[depth] != "$(" && kind[depth] != "<(" && kind[depth] != "`" && kind[depth] != "((" && kind[depth] != "$((") {
+            if (save[depth]) refuse("a `)` that unwinds a frame opened inside a quoted string")
+            depth--                            # drops [ [s $[ (a
+          }
           top = (depth > 0) ? kind[depth] : ""
         }
         if (casec[depth] > 0) { o = o ch " "; i++; cmdpos = 1; continue }   # a case pattern terminator
@@ -236,7 +259,7 @@ strip_data() {
         o = o ch " "; i++; continue
       }
       if (ch == "`") {
-        if (top == "`") { pop(); o = o " " } else { push("`", 0); o = o " `" }   # the backtick marks a word that may expand to nothing
+        if (top == "`") { pop(); o = o "` " } else { push("`", 0); o = o " `" }   # the backticks mark a word that may expand to nothing
         i++; continue
       }
       if (ch == "<" && c[i + 1] == "<" && c[i + 2] != "<" && (i == 1 || c[i - 1] != "<") && !noheredoc) {
@@ -326,7 +349,8 @@ fi
 # own call, is always available to the agent.
 SHW='(^|[[:space:]()])([^[:space:]#!=]*/)?(ba|z|da|k|c|tc|fi|a|mk|ya)?sh[0-9]*'   # a shell, by name or path (`ksh93`, `bash5` too); `#!/bin/bash` and `x=/bin/sh` are not commands
 RD='([[:space:]]*[0-9]*[<>]+[[:space:]]*[^[:space:]<>]*)*'                          # redirection words are not arguments
-XW='([[:space:]]+([^[:space:]]*[$`][^[:space:]]*|\$\(.*\)))*'                        # words holding an expansion may be nothing at all (`bash $a -c`, `sh $(:) -c`)
+# shellcheck disable=SC2016  # the backtick is a literal in the pattern
+XW='([[:space:]]+([^[:space:]]*[$`][^[:space:]]*|\$\(.*\)|`.*`))*'                   # words holding an expansion may be nothing at all (`bash $a -c`, `sh $(:) -c`)
 ENVOPT='([[:space:]]+(-[uCPa][[:space:]]+[^[:space:]]+|--(unset|chdir|argv0)[[:space:]]+[^[:space:]]+|-[A-Za-z]*|--[A-Za-z-]+(=[^[:space:]]*)?|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|[^[:space:]]*[$`][^[:space:]]*))*'
 # every alternative supplies its own right boundary, so `shasum`, `shellcheck`, `bashful` never match
 WRAPPER="${SHW}${RD}${XW}${RD}[[:space:]]*[)}]*[[:space:]]*\$|${SHW}${RD}${XW}${RD}[[:space:]]+-|${SHW}[[:space:]]*[0-9]*<|${SHW}[[:space:]].*<|(^|[[:space:]()])(eval|trap)([[:space:]]|\$)|(^|[[:space:]()])(source|\.)[[:space:]].*<|(^|[[:space:]()])env${ENVOPT}[[:space:]]+(-[A-Za-z]*S|--split-string)"
@@ -362,6 +386,7 @@ while IFS= read -r SEG; do
         if [ -n "$WANT" ]; then WANT=""; continue; fi   # the value of the previous option, whatever its shape
         case "$T" in
           -m|-F|-C|-c|-t|--message|--file|--author|--date|--trailer|--template|--fixup|--squash|--reedit-message|--reuse-message|--cleanup) WANT=1 ;;
+          -[A-Za-z]*[mFCct]) WANT=1 ;;                 # `-qm fix`: the cluster ends in an option that takes the next word
           *[\<\>]) WANT=1 ;;                          # `2>` from `2>&1`: the next token is its target, not a pathspec
           -*|*[\<\>]*) ;;
           *) HAS_WORKTREE=1 ;;
@@ -413,8 +438,15 @@ if has "(^|[^[:alnum:]])${IDENT}([^[:alnum:]]|\$)" "$NAME"; then
   SAFE_NAME=$(tr -d '\n\r' <<<"$NAME" | cut -c1-40)   # repo-controlled text: one line, short, before it reaches the model
   echo "Blocked: git user.name '$SAFE_NAME' is not a human (CLAUDE.md §2)." >&2; exit 2
 fi
-if has "(user\.name=|GIT_(AUTHOR|COMMITTER)_NAME=|--author[= ])[\"']?([^\"']*[^[:alnum:]\"'])?${IDENT}([^[:alnum:]]|\$)" "$CMD"; then
+# The stripped text has the unquoted forms with every quote splice undone (`user.name=Cla'ude'`); the
+# raw text has the quoted values (`--author="Claude Bot <...>"`), whose closing quote bounds them.
+if has "(user\.name=|GIT_(AUTHOR|COMMITTER)_NAME=|--author[= ])([^[:space:]]*[^[:alnum:][:space:]])?${IDENT}([^[:alnum:]]|\$)" "$STRIPPED" ||
+   has "(user\.name=|GIT_(AUTHOR|COMMITTER)_NAME=|--author[= ])[\"']([^\"']*[^[:alnum:]\"'])?${IDENT}([^[:alnum:]]|\$)" "$CMD"; then
   echo "Blocked: the commit sets a committer or author that is not a human (CLAUDE.md §2)." >&2; exit 2
+fi
+# git can also take config from the environment, where the value is out of this check's sight
+if has '--config-env|GIT_CONFIG_(COUNT|KEY_[0-9]+|VALUE_[0-9]+|PARAMETERS)=' "$STRIPPED"; then
+  echo "Blocked: git config passed through the environment (--config-env, GIT_CONFIG_*) in the same call as a commit cannot be inspected. Set it with -c or in the repo config." >&2; exit 2
 fi
 
 # no AI attribution in the commit message — scan the command only, not the staged diff.

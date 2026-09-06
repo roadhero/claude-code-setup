@@ -584,6 +584,38 @@ run "quoted brace message is allowed"        0 'git commit -m "fix {a,b}"'
 run "escaped * message is allowed"           0 'git commit -m \*'
 run "brace group around a plain push"        0 '{ git push origin feat/x; }'
 run "git add * in its own segment then commit" 0 'git add * && git commit -m x'
+run "commit with a bracket pattern flag"     2 'git commit -m x -[n]'
+run "push with a bracket pattern flag"       2 'git push origin main -[f]'
+run "commit with a word-glued bracket pattern" 2 'git commit -m x f[ab]'
+run "array assignment then a plain commit"   0 'a[1]=x; git commit -m y'
+run ") inside a quoted default then push -f" 2 ': "${x:-)}" ; git push -f origin main #"'
+run ") inside a quoted replacement then --no-verify" 2 ': "${x/)/y}" ; git commit --no-verify -m x #"'
+run ") inside a default, echo form"          2 'echo "${x:-)}"; git push origin main --force; echo "x <<EOF
+more text"'
+run ") inside an unquoted default in a push" 2 'git push origin main ${a:-)} --force'
+run "bash \${a[@]} -c wrapper"               2 'bash ${a[@]} -c "git push --force origin main"'
+run "bash \${a[0]} -c wrapper"               2 'bash ${a[0]} -c "git push --force origin main"'
+run "bash \"\${a[@]}\" -c wrapper"           2 'bash "${a[@]}" -c "git push --force origin main"'
+run "bash \"\${@}\" -c wrapper"              2 'bash "${@}" -c "git push --force origin main"'
+run "bash \"backtick\" -c wrapper"           2 'bash "`:`" -c "git push --force origin main"'
+run "bash backtick echo -c wrapper"          2 'bash `echo` -c "git push --force origin main"'
+run "bash \${a[1 | 2]} -c wrapper"           2 'bash ${a[1 | 2]} -c "git push --force origin main"'
+run "env \${a[@]} -S wrapper"                2 'env ${a[@]} -S "bash -c '"'"'git push --force origin main'"'"'"'
+run "bash 5.3 funsub is refused"             2 '${ git push -f origin main; }'
+run "substitution inside \${ } is refused"   2 'git commit -m "${v:-$(git describe)}"'
+run "push with a quoted \${BRANCH##*/}"      0 'git commit -m "fix" && git push origin "HEAD:refs/heads/${BRANCH##*/}"'
+run "push with an unquoted \${REF##*/}"      0 'git push origin HEAD:${REF##*/}'
+run "push with \${BRANCH:?}"                 0 'git push origin ${BRANCH:?}'
+run "commit then echo \${a[0]}"              0 'git commit -m x && echo "${a[0]}"'
+run "message with parens naming a shell"     0 'git commit -m "fix(bash): x"'
+run "message that is (sh)"                   0 'git commit -m "(sh)"'
+run "quoted message mentioning user.name=claude" 0 'git commit -m "docs: never set user.name=claude"'
+run "quoted message mentioning --author claude" 0 'git commit -m "fix: the --author claude check"'
+run "-c user.name with an ANSI-C spliced bot" 2 'git -c user.name=$'"'"'Claude'"'"' commit -m x'
+run "-c user.name with a quote-spliced bot"  2 'git -c user.name=Cla'"'"'ude'"'"' commit -m x'
+run "--config-env user.name is refused"      2 'UN=ClaudeBot git --config-env=user.name=UN commit -m x'
+run "GIT_CONFIG_KEY user.name is refused"    2 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=Claude git commit -m x'
+run "message mentioning --config-env is allowed" 0 'git commit -m "docs: explain --config-env"'
 run_raw "control byte in the command is refused" 2 '{"tool_input":{"command":"git commit -m x'"$BS"'u0001 --no-verify"}}'
 run "env with an assignment then a signed commit" 0 'env GIT_EDITOR=true git commit -S -m x'
 run "shebang write then commit is allowed"   0 'echo '"'"'#!/bin/bash'"'"' > run.sh && git add run.sh && git commit -m x'
@@ -700,6 +732,9 @@ run "dirty tracked secret, --gpg-sign then pathspec" 2 'git commit --gpg-sign tr
 run "dirty tracked secret, -m -F then pathspec" 2 'git commit -m -F tracked.txt'
 run "dirty tracked secret, plain commit with 2>&1" 0 'git commit -m x 2>&1'
 run "dirty tracked secret, plain commit to /dev/null" 0 'git commit -m x >/dev/null 2>&1'
+run "dirty tracked secret, -qm cluster takes a value" 0 'git commit -qm fix'
+run "dirty tracked secret, -sm cluster takes a value" 0 'git commit -sm fix'
+run "dirty tracked secret, quoted a>b is a pathspec" 2 'git commit -m x "a>b"'
 run "dirty tracked secret, add && commit"    2 'git add tracked.txt && git commit -m "x"'
 git checkout -q -- tracked.txt
 
@@ -800,7 +835,7 @@ for t in bash sh grep git sed tr printf cat; do
 done
 run_nojq() {
   printf '%s' "$3" | jq -Rs '{tool_input:{command:.}}' >"$TMP/payload"
-  PATH="$NOJQ" bash "$HOOK" <"$TMP/payload" >/dev/null 2>"$TMP/err"
+  PATH="$NOJQ" "$BASH" "$HOOK" <"$TMP/payload" >/dev/null 2>"$TMP/err"
   record "$1" "$2" $? "$3"
 }
 run_nojq "no jq: commit fails closed"        2 'git commit -m "x"'
@@ -814,7 +849,7 @@ for t in bash sh grep git sed tr printf cat jq wc; do
 done
 run_noawk() {
   printf '%s' "$3" | jq -Rs '{tool_input:{command:.}}' >"$TMP/payload"
-  PATH="$NOAWK" bash "$HOOK" <"$TMP/payload" >/dev/null 2>"$TMP/err"
+  PATH="$NOAWK" "$BASH" "$HOOK" <"$TMP/payload" >/dev/null 2>"$TMP/err"
   record "$1" "$2" $? "$3"
 }
 run_noawk "no awk: commit fails closed"      2 'git commit -m "x"'
@@ -829,7 +864,7 @@ mktoolbox "$TMP/notr" bash sh grep git sed awk printf cat jq wc
 mktoolbox "$TMP/nowc" bash sh grep git sed awk printf cat jq tr
 run_without() { # run_without <toolbox> <name> <expected-exit> <command>
   printf '%s' "$4" | jq -Rs '{tool_input:{command:.}}' >"$TMP/payload"
-  PATH="$1" bash "$HOOK" <"$TMP/payload" >/dev/null 2>"$TMP/err"
+  PATH="$1" "$BASH" "$HOOK" <"$TMP/payload" >/dev/null 2>"$TMP/err"
   record "$2" "$3" $? "$4"
 }
 run_without "$TMP/notr" "no tr: push fails closed"      2 'git push --force origin main'
