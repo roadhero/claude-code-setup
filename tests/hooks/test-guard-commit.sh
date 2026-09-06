@@ -834,6 +834,15 @@ run "quoted \${x} prefix message is allowed" 0 'git commit -m "${x} done"'
 run "quoted substitution message, no pathspec, dirty secret" 0 'git commit -m "$(date)"'
 run "quoted \${x} message then pathspec, dirty secret" 2 'git commit -m "${x}" tracked.txt'
 run "quoted \$x message then pathspec, dirty secret" 2 'git commit -m "$x" tracked.txt'
+run "quoted \${x:-} default is a flag"       2 'git push origin "${x:---force}"'
+run "unquoted \${x:-} default is a flag"     2 'git push origin ${x:---force}'
+run "\${x:=} default is --no-verify"         2 'git commit "${x:=--no-verify}" -m x'
+run "\${x=} default is a flag"               2 'git push origin ${x=--force}'
+run "\${VERSION:-0.0.0} default is allowed"  0 'git commit -m "${VERSION:-0.0.0}"'
+run "\${BRANCH:-main} default is allowed"    0 'git push origin "${BRANCH:-main}"'
+run "\${x:-HEAD} default is allowed"         0 'git push origin ${x:-HEAD}'
+run "\${#files} length is allowed"           0 'git commit -m "count ${#files}"'
+run "\${x//a/b} replacement is allowed"      0 'git commit -m "${x//a/b}"'
 run "heredoc marker before a substitution on the same line" 2 'cat <<EOF $(:
 git push -f origin main
 EOF

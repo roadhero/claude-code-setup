@@ -29,7 +29,8 @@
 # `--force-if-includes` on its own, `-S<keyid>` with an
 # `n` in the key id, an unquoted `*`, `?`, `[`, or `{a,b}` in a commit or push (bash expands it
 # when the command runs; quote it, or list the files), an expansion between a shell and its
-# option (`bash $a -c`: bash may see nothing there), git config passed through the environment in
+# option (`bash $a -c`: bash may see nothing there), a `${x:-default}` in a commit or push whose
+# default value is itself a flag (`${x:---force}`; refused, since it may expand to that flag), git config passed through the environment in
 # a commit or push call (`--config-env`, `GIT_CONFIG_*`, `include.path`, `HOME=`, `XDG_CONFIG_HOME=`),
 # a commit message mentioning `-c core.hooksPath` or an unquoted `include.path`/`HOME=`/`XDG_CONFIG_HOME=`, a diff over 16 MB (commit
 # large binaries separately, or via LFS), and an ANSI-C numeric escape (`$'\033[0m'`) in a call
@@ -389,6 +390,12 @@ WRAPPER="${SHW}${RD}${XW}${RD}[[:space:]]*[)}]*[[:space:]]*\$|${SHW}${RD}${XW}${
 # (`git -c alias.fp=push fp --force`; the `-c` value is quoted data, so the raw command is read too).
 if has '(^|[^[:alnum:]_])alias\.' "$STRIPPED" || has '-c[[:space:]]*["'"'"']?alias\.' "$CMD"; then
   echo "Blocked: a git alias defined in the same call as a commit/push cannot be inspected. Define it separately, or use the full subcommand." >&2; exit 2
+fi
+# A ${param:-WORD} / ${param=WORD} default (or := ) whose value begins with a dash expands to that
+# flag when the parameter is unset — with no prior assignment, unlike variable indirection — and the
+# walk drops the interior, so it cannot see it. Refuse it (a normal default is a value, not a flag).
+if has '\$\{[A-Za-z0-9_#!]*:?[-=]-' "$CMD"; then
+  echo "Blocked: a \${parameter:-default} whose default value is a flag cannot be inspected (it may expand to that flag). Pass the flag directly, or set the variable first in its own call." >&2; exit 2
 fi
 
 IS_COMMIT=""; HAS_PUSH=""; HAS_ADD=""; HAS_WORKTREE=""
