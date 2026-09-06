@@ -320,6 +320,25 @@ run "# after (( )) is a comment"             2 '((1))#c <<EOF
 git push --force origin main'
 run "# after \$(( )) is part of the word"    0 'echo $((1))#c <<EOF
 git push --force origin main is body here'
+run "function definition then case"          2 'x="$(f() case a in a) git push --force origin main;; esac
+f)"'
+run "function def then case, --no-verify"    2 'git commit -m "$(f() case a in a) git commit --no-verify -m x;; esac
+f)"'
+run "coproc then case"                       2 'x="$(coproc case a in a) git push --force origin main;; esac)"'
+run "subcommand split by quotes"             2 'git pu"sh" --force origin main'
+run "subcommand split by quotes, other cut"  2 'git p"ush" --force origin main'
+run "subcommand as an ANSI-C string"         2 'git $'"'"'push'"'"' --force origin main'
+run "subcommand split by a backslash"        2 'git pus\h --force origin main'
+run "commit split by empty quotes"           2 'git commi""t --no-verify -m x'
+run "commit split by a backslash"            2 'git com\mit --no-verify -m x'
+run "flag in quotes"                         2 'git push "-f" origin main'
+run "flag split by quotes"                   2 'git commit --no-veri"fy" -m x'
+run "flag as an ANSI-C string"               2 'git commit $'"'"'--no-verify'"'"' -m x'
+run "one-word quoted message is harmless"    0 'git commit -m "tidy"'
+run "quoted message with spaces stays data"  0 'git commit -m "never git push -f"'
+MANY=$(for _ in $(seq 1 20); do printf ' <<A'; done)
+run "twenty heredocs on one line fail closed" 2 ": $MANY
+git push -f origin main"
 run "unbalanced [ then a benign heredoc"     0 'echo [
 cat > n.md <<EOF
 never git push -f
@@ -458,8 +477,24 @@ run_noawk() {
 run_noawk "no awk: commit fails closed"      2 'git commit -m "x"'
 run_noawk "no awk: unrelated command allowed" 0 'ls'
 
+# --- missing tr or wc: the segment split cannot run, so a git commit/push fails closed ----------
+mktoolbox() { # mktoolbox <dir> <tools...>
+  mkdir -p "$1"; d=$1; shift
+  for t in "$@"; do p=$(command -v "$t") && ln -s "$p" "$d/$t"; done
+}
+mktoolbox "$TMP/notr" bash sh grep git sed awk printf cat jq wc
+mktoolbox "$TMP/nowc" bash sh grep git sed awk printf cat jq tr
+run_without() { # run_without <toolbox> <name> <expected-exit> <command>
+  printf '%s' "$4" | jq -Rs '{tool_input:{command:.}}' >"$TMP/payload"
+  PATH="$1" bash "$HOOK" <"$TMP/payload" >/dev/null 2>"$TMP/err"
+  record "$2" "$3" $? "$4"
+}
+run_without "$TMP/notr" "no tr: push fails closed"      2 'git push --force origin main'
+run_without "$TMP/nowc" "no wc: commit fails closed"    2 'git commit --no-verify -m x'
+run_without "$TMP/notr" "no tr: unrelated command allowed" 0 'ls'
+
 # Every case in this file must have been counted: a case that ran in a subshell would be lost.
-EXPECTED=$(grep -cE '^(run|run_raw|run_nojq|run_noawk) ' "$SELF")
+EXPECTED=$(grep -cE '^(run|run_raw|run_nojq|run_noawk|run_without) ' "$SELF")
 if [ "$((PASS + FAIL))" -ne "$EXPECTED" ]; then
   echo "FAIL: $EXPECTED cases defined, $((PASS + FAIL)) counted"
   FAIL=$((FAIL + 1))
