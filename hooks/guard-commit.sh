@@ -7,7 +7,10 @@
 # call, `git config core.hooksPath` set in an earlier call, flags fed through a pipe (`xargs`),
 # unique-prefix long options (`--no-veri`), a word spliced by an empty expansion
 # (`git pu${x}sh`, `git pu$(:)sh`), and the committer check reading the current directory's
-# git config (`git -C elsewhere commit`).
+# git config (`git -C elsewhere commit`). Known false blocks (safe direction): a one-word quoted
+# argument that spells a flag or subcommand (`-m "--no-verify"`, `-m "eval"`, `tag -m "push" -f`),
+# `--force-if-includes` on its own, and an ANSI-C numeric escape (`$'\033[0m'`) anywhere in a
+# call that also commits or pushes.
 #
 # Every check reads its whole input through a here-string, never a pipe: `grep -q` exits on the
 # first match, and under pipefail the upstream writer's SIGPIPE would read as "no match".
@@ -21,10 +24,10 @@ INPUT=$(cat)
 # must NOT slip past into a silent allow. grep exit 1 = no match; anything else = error.
 grep -qiE 'git.*(commit|push)' <<<"$INPUT"
 RC=$?
-if [ "$RC" -eq 1 ] && grep -qi git <<<"$INPUT"; then
-  # No plain mention, but the word `git` is there. A split subcommand (`git pu"sh"`, `git pus\h`,
-  # `git $'push'`, `git pu\` + `sh`) could still be one: retry with quotes, backslashes, `$`, and
-  # JSON-escaped continuations removed (sed: linear; a bash substitution is quadratic on 3.2).
+if [ "$RC" -eq 1 ]; then
+  # No plain mention. A split word (`g"it" push`, `git pu"sh"`, `git pus\h`, `git $'push'`,
+  # `git pu\` + `sh`) could still be one: retry with quotes, backslashes, `$`, and JSON-escaped
+  # continuations removed (sed: linear, ~25 ms on 400 KB; a bash substitution is quadratic on 3.2).
   # That only joins text, it can never destroy a real mention. An ANSI-C numeric escape
   # (`$'\x70ush'`) decodes to text no dequoting can reveal, so it goes to the walker, which refuses it.
   if ! J=$(sed -e 's/\\\\\\n//g' -e 's/\\"//g' -e "s/['\$\\\\]//g" <<<"$INPUT"); then
@@ -97,12 +100,13 @@ strip_data() {
   #         "(a" paren inside arithmetic, "[" subscript/test, "${" parameter expansion. save[]: the q to restore on pop.
   function push(k, sq) { kind[++depth] = k; save[depth] = sq; casec[depth] = 0; pendat[depth] = npend; pushnr[depth] = NR; pushpos[depth] = i; cmdpos = 1 }
   function pop() {
-    if (npend > pendat[depth]) exit 3            # a marker inside a substitution closed on its own line: refuse to guess
+    if (npend > pendat[depth]) refuse("a heredoc marker inside a substitution that closes on the same line")
     # `name()` is a function definition: what follows is a command (`f() case ...`)
     cmdpos = (kind[depth] == "(" && pushnr[depth] == NR && substr(line, pushpos[depth], i - pushpos[depth] + 1) ~ /^\([ \t]*\)$/)
     q = save[depth]; poppedkind = kind[depth]; depth--; poppos = i
     if (q == 2) qbad = 1                         # the enclosing string held a substitution: never glue it
   }
+  function refuse(why) { refused = 1; print "guard-commit.sh cannot classify this command: " why ". Rewrite it without that construct." > "/dev/stderr"; exit 3 }
   function closeq() { if (!qbad && qb != "" && qb !~ /[ \t;&|]/) o = o qb }   # a short quoted fragment is part of its word
   function droptests() { while (depth > 0 && kind[depth] == "[") depth-- }   # a test bracket cannot span a command
   BEGIN { q = 0; depth = 0; npend = 0; body = 0; cont = 0; casec[0] = 0; poppos = -1; poppedkind = ""; cmdpos = 1 }
@@ -131,7 +135,7 @@ strip_data() {
       ch = c[i]
       if (q == 1) { if (ch == "\047") { q = 0; closeq() } else qb = qb ch; i++; continue }
       if (q == 3) {
-        if (ch == "\\" && c[i + 1] ~ /[xuU0-7]/) exit 3   # \x70 / \160 / \u0070: decodes to text we cannot see
+        if (ch == "\\" && c[i + 1] ~ /[xuU0-7]/) refuse("a numeric escape (\\x, \\u, octal) inside $'"'"'...'"'"'")
         if (ch == "\\") { qb = qb c[i + 1]; i += 2; continue }
         if (ch == "\047") { q = 0; closeq() } else qb = qb ch
         i++; continue
@@ -199,14 +203,14 @@ strip_data() {
             j++; continue
           }
           if (c[j] == "\\") {
-            if (j == n) exit 3                   # a delimiter continued on the next line: refuse to guess
+            if (j == n) refuse("a heredoc delimiter continued on the next line")
             quoted = 1; j++; w = w c[j]; j++; continue
           }
           w = w c[j]; j++
         }
         if (w != "") {
-          if (body) exit 3                       # a heredoc nested inside another body: refuse to guess
-          if (npend >= 16) exit 3                # no real command opens this many heredocs at once
+          if (body) refuse("a heredoc nested inside another heredoc body")
+          if (npend >= 16) refuse("more than 16 heredocs pending at once")
           pword[++npend] = w; pdash[npend] = dash; pq[npend] = quoted
         }
         o = o "<<"; i = j; cmdpos = 0; continue
@@ -231,7 +235,7 @@ strip_data() {
   }
   # A frame or quote still open at the end means bash would reject the whole input (or the walk
   # lost track of it, e.g. a `case` with no `esac`). Either way: refuse to guess.
-  END { if (depth > 0 || q == 1 || q == 2 || q == 3) exit 3 }'
+  END { if (refused) exit 3; if (depth > 0 || q == 1 || q == 2 || q == 3) refuse("a quote, $(...), ((...)), ${...} or [ left open at the end (or a case with no esac)") }'
 }
 if ! STRIPPED=$(strip_data <<<"$CMD"); then
   echo "Blocked: guard-commit.sh could not parse the command (awk failed). Failing closed." >&2

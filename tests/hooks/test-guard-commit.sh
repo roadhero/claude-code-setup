@@ -345,6 +345,13 @@ run "ANSI-C octal escape in the subcommand"  2 'git $'"'"'\160ush'"'"' --force o
 run "ANSI-C hex escape in the flag"          2 'git push $'"'"'\x2d\x66'"'"' origin main'
 run "ANSI-C unicode escape"                  2 'git $'"'"'\u0070ush'"'"' --force origin main'
 run "commit -F is not a force flag"          0 'git commit -m "push" -F /dev/null'
+run "git split by quotes"                    2 'g"it" push --force origin main'
+run "git split by single quotes"             2 'gi'"'"'t'"'"' push -f origin main'
+run "git split by empty quotes"              2 'gi'"'"''"'"'t push -f origin main'
+run "git split by a backslash"               2 'gi\t push -f origin main'
+run "git split, --no-verify"                 2 'g"it" commit --no-verify -m x'
+run "git as an ANSI-C hex string"            2 '$'"'"'\x67it'"'"' push -f origin main'
+run "refusal names the construct"            2 'git commit -m x; echo $'"'"'\033[0m'"'"''
 DENSE=$(for _ in $(seq 1 600); do printf '  "key": "value",\n'; done)
 run "quote-dense non-git heredoc is fast"    0 "cat > package.json <<'EOF'
 {
