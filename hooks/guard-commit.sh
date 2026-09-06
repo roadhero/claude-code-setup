@@ -6,6 +6,9 @@
 # accepted limits: variable indirection (`p=push; git $p -f`), git aliases defined in an earlier
 # call, `git config core.hooksPath` set in an earlier call, flags fed through a pipe (`xargs`),
 # and flags spelled with quoting tricks (`--no-veri"fy"`, `$'--no-verify'`, unique-prefix `--no-veri`).
+#
+# Every check reads its whole input through a here-string, never a pipe: `grep -q` exits on the
+# first match, and under pipefail the upstream writer's SIGPIPE would read as "no match".
 export LC_ALL=C   # byte-oriented grep/awk/tr: an invalid UTF-8 byte must not make a tool drop the rest of the input
 set -o pipefail   # a failing tool anywhere in a pipeline must surface, never read as "no match"
 INPUT=$(cat)
@@ -15,11 +18,12 @@ INPUT=$(cat)
 # Match loosely (no quote-class): a quoted arg before the subcommand (`git -C "x" commit`)
 # must NOT slip past into a silent allow. JSON-escaped backslash-newlines (`git pu\` + `sh`) are
 # joined first so a split word cannot dodge the match. grep exit 1 = no match; anything else = error.
-printf '%s' "$INPUT" | sed 's/\\\\\\n//g' | grep -qiE 'git.*(commit|push)'
+JOINED=${INPUT//\\\\\\n/}
+grep -qiE 'git.*(commit|push)' <<<"$JOINED"
 case $? in
   0) ;;
   1) exit 0 ;;
-  *) echo "Blocked: guard-commit.sh could not run its fast-path check (sed/grep failed). Failing closed." >&2; exit 2 ;;
+  *) echo "Blocked: guard-commit.sh could not run its fast-path check (grep failed). Failing closed." >&2; exit 2 ;;
 esac
 
 # The command plausibly commits/pushes — jq is needed to inspect it. Fail loud and closed.
@@ -30,7 +34,7 @@ fi
 
 # The payload mentions git commit/push, so an empty command here means the payload did not parse
 # (or its shape changed). Fail closed rather than silently turning into a no-op.
-CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
+CMD=$(jq -r '.tool_input.command // empty' <<<"$INPUT" 2>/dev/null)
 if [ -z "$CMD" ]; then
   echo "Blocked: guard-commit.sh could not read .tool_input.command from the PreToolUse payload. Failing closed." >&2
   exit 2
@@ -54,27 +58,33 @@ fi
 #  - `$(...)` and backticks reopen code inside double quotes and inside unquoted heredoc bodies
 #    (bash expands them there: `cat <<EOF` + `$(git push -f)` runs the push);
 #  - `$((...))`, `((...))`, `$[...]`, `${...}`, and `[...]` frames, where `<<` is a shift or
-#    text, not a heredoc;
+#    text and `#` is not a comment; an unbalanced `[` dies at the next command boundary;
 #  - `#` comments to end of line, only where bash starts one: at the start of a word, which a
 #    `)` closing `$(...)` or a closing backtick is not;
-#  - `case ... esac`: a pattern's `)` does not close an enclosing `$(...)`;
+#  - `case ... esac`, counted only in command position: a pattern's `)` does not close an
+#    enclosing `$(...)`; a `)` that the top frame cannot close unwinds to the `(` it does close;
+#    a frame or quote still open at the end of the input fails closed;
 #  - heredoc bodies, dropped line by line up to the terminator (`EOF)` also closes a `$(`,
 #    `<<-` allows leading tabs, an unterminated body runs to end of input as in bash). A `<<WORD`
 #    marker counts only in code, never inside a string, a comment, or arithmetic: honoring one
-#    there would let a real command hide behind a fake terminator line.
+#    there would let a real command hide behind a fake terminator line. A body starts at the
+#    newline that ends the command, and anything left open inside it dies with it.
 # Every divergence from bash is meant to err toward stripping LESS (a false block at worst),
-# never more. If the walk itself fails, the hook fails closed (pipefail below).
+# never more. Where the walk would have to guess (a heredoc nested in a body, a marker inside a
+# substitution that closes on its own line, a delimiter continued on the next line) it exits 3
+# and the hook fails closed.
 strip_data() {
   awk '
   # q: 0 code, 1 single quotes, 2 double quotes, 3 $'"'"'...'"'"', 4 unquoted heredoc body, 5 quoted heredoc body
   # kind[]: "(" subshell, "$(" substitution, "`", "((" arithmetic, "(a" paren inside arithmetic,
   #         "[" subscript/test, "${" parameter expansion. save[]: the q to restore on pop.
-  function push(k, sq) { kind[++depth] = k; save[depth] = sq; casec[depth] = 0; pendat[depth] = npend }
+  function push(k, sq) { kind[++depth] = k; save[depth] = sq; casec[depth] = 0; pendat[depth] = npend; cmdpos = 1 }
   function pop() {
     if (npend > pendat[depth]) exit 3            # a marker inside a substitution closed on its own line: refuse to guess
-    q = save[depth]; poppedkind = kind[depth]; depth--; poppos = i
+    q = save[depth]; poppedkind = kind[depth]; depth--; poppos = i; cmdpos = 0
   }
-  BEGIN { q = 0; depth = 0; npend = 0; body = 0; cont = 0; casec[0] = 0; poppos = -1; poppedkind = "" }
+  function droptests() { while (depth > 0 && kind[depth] == "[") depth-- }   # a test bracket cannot span a command
+  BEGIN { q = 0; depth = 0; npend = 0; body = 0; cont = 0; casec[0] = 0; poppos = -1; poppedkind = ""; cmdpos = 1 }
   {
     line = $0
     if (body) {
@@ -95,6 +105,7 @@ strip_data() {
     o = ""
     i = 1
     poppos = -1
+    if (q == 0 && !cont) cmdpos = 1
     while (i <= n) {
       ch = c[i]
       if (q == 1) { if (ch == "\047") q = 0; i++; continue }
@@ -116,7 +127,9 @@ strip_data() {
       if (ch == "\"") { q = 2; i++; continue }
       # a comment starts only where a word starts: after whitespace, a control operator, or the `)`
       # of a subshell. The `)` of `$(...)`, a closing backtick, or `))` end a word, not a command.
-      if (ch == "#" && (i == 1 || c[i - 1] ~ /[ \t;&|(]/ || (c[i - 1] == ")" && poppos == i - 1 && poppedkind == "("))) break
+      if (ch == "#" && !noheredoc && (i == 1 || c[i - 1] ~ /[ \t;&|(]/ || (c[i - 1] == ")" && poppos == i - 1 && poppedkind == "("))) break
+      if (ch == ";" || ch == "&" || ch == "|") { droptests(); cmdpos = 1; o = o ch; i++; continue }
+      if (ch == "{" || ch == "!") { cmdpos = 1; o = o ch; i++; continue }
       if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { push("((", 0); o = o " "; i += 3; continue }
       if (ch == "$" && c[i + 1] == "[") { push("[", 0); o = o " "; i += 2; continue }
       if (ch == "$" && c[i + 1] == "{") { push("${", 0); o = o " "; i += 2; continue }
@@ -129,8 +142,15 @@ strip_data() {
       if (ch == ")" && top == "(a") { pop(); o = o " "; i++; continue }
       if (ch == "]" && top == "[") { pop(); o = o " "; i++; continue }
       if (ch == "}" && top == "${") { pop(); o = o " "; i++; continue }
-      if (ch == ")" && casec[depth] > 0) { o = o ch; i++; continue }         # a case pattern terminator
-      if (ch == ")" && (top == "(" || top == "$(")) { pop(); o = o ch; i++; continue }
+      if (ch == ")") {
+        if (top == "[" || top == "${") {         # a frame `)` cannot close: unwind to the `(` it does close
+          while (depth > 0 && kind[depth] != "(" && kind[depth] != "$(" && kind[depth] != "`" && kind[depth] != "((") depth--
+          top = (depth > 0) ? kind[depth] : ""
+        }
+        if (casec[depth] > 0) { o = o ch; i++; cmdpos = 1; continue }   # a case pattern terminator
+        if (top == "(" || top == "$(") { pop(); o = o ch; i++; continue }
+        o = o ch; i++; continue
+      }
       if (ch == "`") {
         if (top == "`") pop(); else push("`", 0)
         o = o " "; i++; continue
@@ -156,38 +176,44 @@ strip_data() {
           if (body) exit 3                       # a heredoc nested inside another body: refuse to guess
           pword[++npend] = w; pdash[npend] = dash; pq[npend] = quoted
         }
-        o = o "<<"; i = j; continue
+        o = o "<<"; i = j; cmdpos = 0; continue
       }
-      if (ch ~ /[A-Za-z_]/ && (i == 1 || c[i - 1] !~ /[A-Za-z0-9_]/)) {   # a word: track case ... esac
+      if (ch ~ /[A-Za-z_]/ && (i == 1 || c[i - 1] !~ /[A-Za-z0-9_]/)) {   # a word: track case ... esac in command position
         j = i; w = ""
         while (j <= n && c[j] ~ /[A-Za-z0-9_]/) { w = w c[j]; j++ }
-        if (w == "case") casec[depth]++
-        else if (w == "esac" && casec[depth] > 0) casec[depth]--
+        if (cmdpos && w == "case") casec[depth]++
+        else if (cmdpos && w == "esac" && casec[depth] > 0) casec[depth]--
+        cmdpos = (w == "if" || w == "then" || w == "else" || w == "elif" || w == "while" || w == "until" || w == "do" || w == "time")
         o = o w; i = j; continue
       }
+      if (ch != " " && ch != "\t") cmdpos = 0
       o = o ch; i++
     }
+    if (q == 0 && !cont) droptests()
     # a body starts at the newline that ends the COMMAND (code state, no continuation), as in bash
     enter = (!body && npend > 0 && q == 0 && !cont)
     if (cont) { printf "%s", o; cont = 0 } else print o
     if (enter) { body = 1; bodyq = q; bodydepth = depth; q = (pq[1] ? 5 : 4) }
-  }'
+  }
+  # A frame or quote still open at the end means bash would reject the whole input (or the walk
+  # lost track of it, e.g. a `case` with no `esac`). Either way: refuse to guess.
+  END { if (depth > 0 || q == 1 || q == 2 || q == 3) exit 3 }'
 }
-if ! STRIPPED=$(printf '%s' "$CMD" | strip_data); then
+if ! STRIPPED=$(strip_data <<<"$CMD"); then
   echo "Blocked: guard-commit.sh could not parse the command (awk failed). Failing closed." >&2
   exit 2
 fi
 
 # A shell wrapper runs its quoted argument as a command, which the strip above just hid.
 # Refuse rather than guess: the unwrapped form is always available to the agent.
-if printf '%s' "$STRIPPED" | grep -qE '(^|[^[:alnum:]_./-])((ba|z|da)?sh[[:space:]]+-[a-z]*c|eval)([^[:alnum:]_./-]|$)'; then
+if grep -qE '(^|[^[:alnum:]_./-])((ba|z|da)?sh[[:space:]]+-[a-z]*c|eval)([^[:alnum:]_./-]|$)' <<<"$STRIPPED"; then
   echo "Blocked: git commit/push inside a shell wrapper (sh -c / bash -c / eval) cannot be inspected. Run the git command directly." >&2; exit 2
 fi
 
 # Each segment costs a few greps; thousands of `;`-separated segments could outlast the hook
 # timeout, and a timed-out PreToolUse hook does not block. No real command has hundreds.
-SEGMENTS=$(printf '%s' "$STRIPPED" | tr ';&|' '\n')
-if [ "$(printf '%s' "$STRIPPED" | tr -cd ';&|\n' | wc -c)" -gt 500 ]; then
+SEGMENTS=$(tr ';&|' '\n' <<<"$STRIPPED")
+if [ "$(tr -cd ';&|\n' <<<"$STRIPPED" | wc -c)" -gt 500 ]; then
   echo "Blocked: guard-commit.sh will not inspect a git commit/push command with over 500 segments. Split it up." >&2
   exit 2
 fi
@@ -196,9 +222,9 @@ IS_COMMIT=""; HAS_PUSH=""; HAS_ADD=""
 while IFS= read -r SEG; do
   [ -z "$SEG" ] && continue
   SEG_COMMIT=""; SEG_PUSH=""
-  printf '%s' "$SEG" | grep -qiE 'git.*[[:space:]]commit([^[:alnum:]]|$)' && SEG_COMMIT=1
-  printf '%s' "$SEG" | grep -qiE 'git.*[[:space:]]push([^[:alnum:]]|$)' && SEG_PUSH=1
-  printf '%s' "$SEG" | grep -qiE 'git.*[[:space:]]add([^[:alnum:]]|$)' && HAS_ADD=1
+  grep -qiE 'git.*[[:space:]]commit([^[:alnum:]]|$)' <<<"$SEG" && SEG_COMMIT=1
+  grep -qiE 'git.*[[:space:]]push([^[:alnum:]]|$)' <<<"$SEG" && SEG_PUSH=1
+  grep -qiE 'git.*[[:space:]]add([^[:alnum:]]|$)' <<<"$SEG" && HAS_ADD=1
   [ -n "$SEG_COMMIT" ] && IS_COMMIT=1
   [ -n "$SEG_PUSH" ] && HAS_PUSH=1
   [ -z "$SEG_COMMIT$SEG_PUSH" ] && continue
@@ -206,16 +232,16 @@ while IFS= read -r SEG; do
   # force-push: --force / --force-with-lease / --mirror, -f alone or inside a flag cluster (-uf),
   # or a `+refspec` (the refspec form of --force). `--force-if-includes` alone is also caught;
   # it is a no-op without --force-with-lease, so nothing legitimate is lost.
-  if [ -n "$SEG_PUSH" ] && printf '%s' "$SEG" | grep -qiE '[[:space:]]push.*[[:space:]](--force-with-lease|--force|--mirror)([^[:alnum:]]|$)|[[:space:]]push.*[[:space:]]-[A-Za-z]*f[A-Za-z]*([^[:alnum:]]|$)|[[:space:]]push.*[[:space:]]\+[^[:space:]]'; then
+  if [ -n "$SEG_PUSH" ] && grep -qiE '[[:space:]]push.*[[:space:]](--force-with-lease|--force|--mirror)([^[:alnum:]]|$)|[[:space:]]push.*[[:space:]]-[A-Za-z]*f[A-Za-z]*([^[:alnum:]]|$)|[[:space:]]push.*[[:space:]]\+[^[:space:]]' <<<"$SEG"; then
     echo "Blocked: force-push. Protected-branch discipline (CLAUDE.md §9)." >&2; exit 2
   fi
 
   # --no-verify skips the pre-commit / pre-push hooks the repo installed on purpose (CLAUDE.md §14),
   # as does `git commit -n` (the short form, alone or in a cluster like -anm). Fix the hook failure instead.
-  if printf '%s' "$SEG" | grep -qiE '[[:space:]]--no-verify([^[:alnum:]-]|$)'; then
+  if grep -qiE '[[:space:]]--no-verify([^[:alnum:]-]|$)' <<<"$SEG"; then
     echo "Blocked: --no-verify bypasses the repo's git hooks (CLAUDE.md §14). Fix the hook failure instead." >&2; exit 2
   fi
-  if [ -n "$SEG_COMMIT" ] && printf '%s' "$SEG" | grep -qiE '[[:space:]]commit.*[[:space:]]-[A-Za-z]*n[A-Za-z]*([^[:alnum:]]|$)'; then
+  if [ -n "$SEG_COMMIT" ] && grep -qiE '[[:space:]]commit.*[[:space:]]-[A-Za-z]*n[A-Za-z]*([^[:alnum:]]|$)' <<<"$SEG"; then
     echo "Blocked: git commit -n is --no-verify (CLAUDE.md §14). Fix the hook failure instead." >&2; exit 2
   fi
 done <<<"$SEGMENTS"
@@ -224,7 +250,7 @@ done <<<"$SEGMENTS"
 
 # Re-pointing core.hooksPath anywhere in the same call (`git -c core.hooksPath=x commit`,
 # `git config core.hooksPath x; git commit`, GIT_CONFIG_PARAMETERS=...) is the same bypass.
-if printf '%s' "$STRIPPED" | grep -qiE 'core\.hooksPath|GIT_CONFIG_(PARAMETERS|COUNT|KEY_)'; then
+if grep -qiE 'core\.hooksPath|GIT_CONFIG_(PARAMETERS|COUNT|KEY_)' <<<"$STRIPPED"; then
   echo "Blocked: core.hooksPath override bypasses the repo's git hooks (CLAUDE.md §14)." >&2; exit 2
 fi
 
@@ -233,14 +259,14 @@ fi
 
 # committer must be a human — match whole tokens / known bot identities, not substrings
 NAME=$(git config user.name 2>/dev/null || echo "")
-if printf '%s' "$NAME" | grep -qiE '(^|[^[:alnum:]])(claude|chatgpt|copilot|cursor|cursoragent|github-actions|assistant|bot|ai[-_ ]?(agent|assistant|bot))([^[:alnum:]]|$)'; then
+if grep -qiE '(^|[^[:alnum:]])(claude|chatgpt|copilot|cursor|cursoragent|github-actions|assistant|bot|ai[-_ ]?(agent|assistant|bot))([^[:alnum:]]|$)' <<<"$NAME"; then
   echo "Blocked: git user.name '$NAME' is not a human (CLAUDE.md §2)." >&2; exit 2
 fi
 
 # no AI attribution in the commit message — scan the command only, not the staged diff.
 # (This is a repo *about* Claude Code; legit messages will say "Claude Code". Only
 #  attribution-SHAPED phrases are blocked, not bare mentions of a tool.)
-if printf '%s' "$CMD" | grep -qiE 'co-authored-by:.*(claude|gpt|copilot|cursor)|generated with (claude|chatgpt|copilot|ai)|🤖|AI[- ](assisted|generated)'; then
+if grep -qiE 'co-authored-by:.*(claude|gpt|copilot|cursor)|generated with (claude|chatgpt|copilot|ai)|🤖|AI[- ](assisted|generated)' <<<"$CMD"; then
   echo "Blocked: AI attribution detected in commit message (CLAUDE.md §2). Remove it." >&2; exit 2
 fi
 
@@ -254,21 +280,22 @@ EXCL=(':(exclude)*.example' ':(exclude)*.sample' ':(exclude)*.dist' ':(exclude)*
 # `--no-ext-diff` and `core.fsmonitor=false` so a repo-local config cannot make the guard run a program.
 GIT_DIFF=(git -c core.fsmonitor=false diff --no-ext-diff)
 DIFF=$("${GIT_DIFF[@]}" --cached 2>/dev/null -- "${EXCL[@]}")
-if [ -n "$HAS_ADD" ] || printf '%s' "$STRIPPED" | grep -qiE '[[:space:]](--all|-[A-Za-z]*a[A-Za-z]*)([[:space:]]|$)'; then
+if [ -n "$HAS_ADD" ] || grep -qiE '[[:space:]](--all|-[A-Za-z]*a[A-Za-z]*)([[:space:]]|$)' <<<"$STRIPPED"; then
   DIFF="$DIFF"$'\n'"$("${GIT_DIFF[@]}" 2>/dev/null -- "${EXCL[@]}")"
 fi
 if [ -n "$HAS_ADD" ]; then
   # (a plain function, not `case` inside $(...): bash 3.2 cannot parse the `)` of a case pattern there)
   scan_untracked() {
     git ls-files --others --exclude-standard 2>/dev/null | while IFS= read -r f; do
-      printf '%s' "$f" | grep -qE '\.(example|sample|dist|tmpl)$' && continue
+      grep -qE '\.(example|sample|dist|tmpl)$' <<<"$f" && continue
       grep -sIE "$SECRETS" -- "$f" | sed 's/^/+/'
     done
   }
   DIFF="$DIFF"$'\n'"$(scan_untracked)"
 fi
-# Only ADDED lines count: removing a leaked secret from a file must stay committable (§11: rotate, then scrub).
-if printf '%s' "$DIFF" | grep '^+' | grep -v '^+++' | grep -qiE "$SECRETS"; then
+# Only ADDED lines count (`+` but not the `+++` file header): removing a leaked secret from a file
+# must stay committable (§11: rotate, then scrub). One grep, one pass, no pipe.
+if grep -qiE "^\+([^+]|\+[^+]|$).*($SECRETS)" <<<"$DIFF"; then
   echo "Blocked: a secret appears to be staged (CLAUDE.md §11). Unstage it." >&2; exit 2
 fi
 exit 0

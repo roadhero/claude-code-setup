@@ -296,6 +296,31 @@ EOF'
 run "backslash-escaped -f"                   2 'git push \-f origin main'
 BIGSEG=$(head -c 1200 /dev/zero | tr '\0' ';')
 run "too many segments fails closed"         2 "git commit -m x $BIGSEG"
+
+# --- a leaked frame must never turn the closing quote into an opening one ---------------------
+run "word case inside \$( ) then push"       2 'x="$(echo case)" ; git push --force origin main'
+run "use-case.md inside \$( ) then push"     2 'git commit -m "$(cat docs/use-case.md)" && git push --force origin main'
+run "edge-case inside \$( ) then --no-verify" 2 'git commit -m "$(basename feat/edge-case)" ; git commit --no-verify -m x'
+run "unbalanced [ inside \$( ) then push"    2 'x="$(echo [)" ; git push --force origin main'
+run "unclosed \${ inside \$( ) then push"    2 'x="$(echo ${a)" ; git push --force origin main'
+run "# inside \${ } is not a comment"        2 'echo ${x:-a #b} ; git push --force origin main'
+run "# inside quoted \${ } is not a comment" 2 'echo "${BRANCH:-main #default}" ; git push --force origin main'
+run "case without esac inside \$( )"         2 'x="$(case a in a) echo hi )"
+git push -f origin main'
+run "case without esac, echo form"           2 'echo "$(case a in a) x )"
+git push -f origin main'
+run "unbalanced quote inside \${ }"          2 'echo ${x//"/} ; git push --force origin main'
+run "unclosed \$( at end of input"           2 'x=$(echo hi
+git push -f origin main'
+run "unbalanced [ then a benign heredoc"     0 'echo [
+cat > n.md <<EOF
+never git push -f
+EOF'
+PAD=$(for _ in $(seq 1 400); do printf 'echo %s\n' "$(head -c 190 /dev/zero | tr '\0' 'a')"; done)
+run "wrapper after 80 KB of padding"         2 "$PAD
+bash -c \"git push --force origin main\""
+run "hooksPath after 80 KB of padding"       2 "$PAD
+git -c core.hooksPath=/dev/null commit -m x"
 BIG=$(head -c 300000 /dev/zero | tr '\0' 'a')
 run "oversized command fails closed"         2 "git commit -m $BIG"
 
@@ -375,6 +400,12 @@ printf '%s\n' "$PEM_HEADER" >key.txt
 git add key.txt
 run "staged private key header"              2 'git commit -m "x"'
 git rm -q --cached key.txt && rm key.txt
+
+# A secret on line 1 of a staged diff far larger than a pipe buffer must still be seen.
+{ printf 'aws_key=%s\n' "$AWS_KEY"; head -c 200000 /dev/zero | tr '\0' 'b' | fold -w 80; } >big.txt
+git add big.txt
+run "secret at the top of a 200 KB staged diff" 2 'git commit -m "x"'
+git rm -q --cached big.txt && rm big.txt
 
 # Scrubbing a leaked secret (a removed line) must stay committable; git is called directly here,
 # the hook is not involved in seeding the leak.
