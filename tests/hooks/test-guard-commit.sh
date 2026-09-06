@@ -896,6 +896,12 @@ run "git config core.editor then commit"      0 'git config core.editor vim && g
 run "git config user.email human then commit" 0 'git config user.email denny@example.com && git commit -m x'
 run "git config commit.gpgsign then commit"   0 'git config commit.gpgsign true && git commit -m x'
 run "brace default carrying = is a config token" 2 'git commit --trailer ${x:-Acked-by=me} -m x'
+run "git config user.name value from a substitution" 2 'git config user.name C"$(printf laude)" && git commit -m x'
+run "git config user.name value from a bare var" 2 'git config user.name $BOT && git commit -m x'
+run "git config user.name value from a brace default" 2 'git config user.name ${x:-Claude} && git commit -m x'
+run "git config user.name split key then bot value" 2 'git config user.na"me" Claude && git commit -m x'
+run "git config user.name value from a var, human intent, still refused" 2 'git config user.name "$USER" && git commit -m x'
+run "git config core.editor from a var is allowed" 0 'git config core.editor $EDITOR && git commit -m x'
 run "heredoc marker before a substitution on the same line" 2 'cat <<EOF $(:
 git push -f origin main
 EOF
