@@ -443,6 +443,36 @@ run "bash -x -c wrapper"                     2 'bash -x -c "git push --force ori
 run "bash --norc -c wrapper"                 2 'bash --norc -c "git commit --no-verify -m x"'
 run "bash -o pipefail -c wrapper"            2 'bash -o pipefail -c "git commit --no-verify -m x"'
 run "ksh -c wrapper"                         2 'ksh -c "git push --force origin main"'
+run "ash -c wrapper"                         2 'ash -c "git push --force origin main"'
+run "bash -cx cluster"                       2 'bash -cx "git push --force origin main"'
+run "bash -ceu cluster"                      2 'bash -ceu "git commit --no-verify -m x"'
+run "bash fed by a heredoc"                  2 'bash <<'"'"'EOF'"'"'
+git push --force origin main
+EOF'
+run "bash -s fed by a heredoc"               2 'bash -s <<'"'"'EOF'"'"'
+git commit --no-verify -m x
+EOF'
+run "bash fed by a here-string"              2 'bash <<<"git push --force origin main"'
+run "bash fed by a pipe"                     2 'echo "git push --force origin main" | bash'
+run "sh -s fed by a heredoc pipe"            2 'cat <<'"'"'EOF'"'"' | sh -s
+git push --force origin main
+EOF'
+run "bash fed by a file"                     2 'bash < run.sh; git push origin main'
+run "trap runs text at exit"                 2 'trap "git push --force origin main" EXIT; true'
+run "wrapper elsewhere in the call (documented false block)" 2 'git commit -m "x" && bash -c "echo done"'
+run "script taking -c (documented false block)" 2 'bash build.sh -c release && git commit -m x'
+run "ssh -c cipher is not a wrapper"         0 'ssh -c aes256-ctr host git commit -m x'
+
+# --- process substitution is a word of the enclosing command ------------------------------------
+run "pipe inside <( ) before --force-with-lease" 2 'git push origin main <(git log --oneline | head -5) --force-with-lease'
+run "; inside <( ) before --force"           2 'git push origin main <(echo a;echo b) --force'
+run "; inside <( ) before +refspec"          2 'git push origin <(echo a;echo b) +main'
+run "; inside <( ) before --no-verify"       2 'git commit -m x <(echo a;echo b) --no-verify'
+run "&& inside <( ) before -n"               2 'git commit -m x <(echo a&&echo b) -n'
+run "newline inside >( ) before --force"     2 'git push origin main >(cat
+) --force'
+run "<( ) control without a separator"       2 'git push origin main <(echo a) --force'
+run "<( ) in a plain diff then commit"       0 'diff <(sort a) <(sort b); git commit -m "x"'
 DENSE=$(for _ in $(seq 1 600); do printf '  "key": "value",\n'; done)
 run "quote-dense non-git heredoc is allowed" 0 "cat > package.json <<'EOF'
 {
@@ -595,6 +625,11 @@ printf '++aws_key=%s\n' "$AWS_KEY" >plus.txt
 git add plus.txt
 run "secret on an added line starting with ++" 2 'git commit -m "x"'
 git rm -q --cached plus.txt && rm plus.txt
+
+printf '++ b/x aws_key=%s\n' "$AWS_KEY" >header.txt
+git add header.txt
+run "secret on a line shaped like a diff header" 2 'git commit -m "x"'
+git rm -q --cached header.txt && rm header.txt
 
 # Scrubbing a leaked secret (a removed line) must stay committable; git is called directly here,
 # the hook is not involved in seeding the leak.
