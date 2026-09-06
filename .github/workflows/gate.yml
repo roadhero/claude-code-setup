@@ -5,12 +5,16 @@ on:
     branches: [main]
   pull_request:
 
+# Nothing here writes to the repo; keep the token read-only even for same-repo branches.
+permissions:
+  contents: read
+
 jobs:
   gate:
     name: Local quality gate (CLAUDE.md §19.3)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install shellcheck and jq
         run: sudo apt-get update -q && sudo apt-get install -y -q shellcheck jq
