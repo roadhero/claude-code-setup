@@ -902,6 +902,9 @@ run "git config user.name value from a brace default" 2 'git config user.name ${
 run "git config user.name split key then bot value" 2 'git config user.na"me" Claude && git commit -m x'
 run "git config user.name value from a var, human intent, still refused" 2 'git config user.name "$USER" && git commit -m x'
 run "git config core.editor from a var is allowed" 0 'git config core.editor $EDITOR && git commit -m x'
+run "git config -f file user.name bot then commit" 2 'git config -f cfg user.name Claude && git commit -m x'
+run "git config --file user.name bot then commit" 2 'git config --file cfg user.name Claude && git commit -m x'
+run "git config -f file core.editor is allowed" 0 'git config -f cfg core.editor vim && git commit -m x'
 run "heredoc marker before a substitution on the same line" 2 'cat <<EOF $(:
 git push -f origin main
 EOF

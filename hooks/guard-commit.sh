@@ -525,7 +525,7 @@ fi
 # A same-call `git config [--flags] [set] user.name|user.email <bot>` write lands after this hook has
 # read the pre-execution repo config, so it evades the committer check above — the identity twin of the
 # same-call core.hooksPath write. Refuse a config write of a non-human name/email.
-CFG_ID="(^|[^[:alnum:]])config([[:space:]]+(--[A-Za-z-]+|set))*[[:space:]]+user\\.(name|email)[[:space:]]+"
+CFG_ID="(^|[^[:alnum:]])config([[:space:]]+(--?[A-Za-z][A-Za-z-]*([[:space:]]+[^[:space:]-][^[:space:]]*)?|set))*[[:space:]]+user\\.(name|email)[[:space:]]+"
 if has "${CFG_ID}[\"']?([^\"']*[^[:alnum:]\"'])?${IDENT}[0-9]*([^[:alnum:]]|[\"']|$)" "$CMD" ||
    has "${CFG_ID}[\"']?([^\"']*[^[:alnum:]\"'])?${IDENT}[0-9]*([^[:alnum:]]|[\"']|$)" "$STRIPPED"; then
   echo "Blocked: a same-call 'git config user.name/email' sets a committer that is not a human (CLAUDE.md §2). Set the identity to a literal human name, in its own call." >&2; exit 2
