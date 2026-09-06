@@ -5,8 +5,9 @@
 # This is a backstop behind the settings.json deny rules and plan mode, not a sandbox. Known,
 # accepted limits: variable indirection (`p=push; git $p -f`), git aliases defined in an earlier
 # call, `git config core.hooksPath` set in an earlier call, flags fed through a pipe (`xargs`),
-# unique-prefix long options (`--no-veri`), and the committer check reading the current
-# directory's git config (`git -C elsewhere commit`).
+# unique-prefix long options (`--no-veri`), a word spliced by an empty expansion
+# (`git pu${x}sh`, `git pu$(:)sh`), and the committer check reading the current directory's
+# git config (`git -C elsewhere commit`).
 #
 # Every check reads its whole input through a here-string, never a pipe: `grep -q` exits on the
 # first match, and under pipefail the upstream writer's SIGPIPE would read as "no match".
@@ -20,17 +21,18 @@ INPUT=$(cat)
 # must NOT slip past into a silent allow. grep exit 1 = no match; anything else = error.
 grep -qiE 'git.*(commit|push)' <<<"$INPUT"
 RC=$?
-if [ "$RC" -eq 1 ]; then
-  # No plain mention. A split word (`git pu"sh"`, `git pus\h`, `git $'push'`, `git pu\` + `sh`)
-  # could still be one: retry with quotes, backslashes, `$`, and JSON-escaped continuations removed.
-  # That only joins text, it can never destroy a real mention. Past 512 KB the substitutions get
-  # slow, and nothing legitimate is that big, so refuse instead.
-  if [ ${#INPUT} -gt 524288 ]; then
-    echo "Blocked: guard-commit.sh will not inspect a Bash payload over 512 KB. Split it up." >&2; exit 2
+if [ "$RC" -eq 1 ] && grep -qi git <<<"$INPUT"; then
+  # No plain mention, but the word `git` is there. A split subcommand (`git pu"sh"`, `git pus\h`,
+  # `git $'push'`, `git pu\` + `sh`) could still be one: retry with quotes, backslashes, `$`, and
+  # JSON-escaped continuations removed (sed: linear; a bash substitution is quadratic on 3.2).
+  # That only joins text, it can never destroy a real mention. An ANSI-C numeric escape
+  # (`$'\x70ush'`) decodes to text no dequoting can reveal, so it goes to the walker, which refuses it.
+  if ! J=$(sed -e 's/\\\\\\n//g' -e 's/\\"//g' -e "s/['\$\\\\]//g" <<<"$INPUT"); then
+    echo "Blocked: guard-commit.sh could not run its fast-path check (sed failed). Failing closed." >&2; exit 2
   fi
-  J=${INPUT//\\\\\\n/}; J=${J//\\\"/}; J=${J//\'/}; J=${J//\\\\/}; J=${J//\$/}
   grep -qiE 'git.*(commit|push)' <<<"$J"
   RC=$?
+  if [ "$RC" -eq 1 ] && grep -qE "\\\$'[^']*\\\\\\\\[xuU0-7]" <<<"$INPUT"; then RC=0; fi
 fi
 case $RC in
   0) ;;
@@ -65,9 +67,11 @@ fi
 # can't trip a flag check or split a segment. One quote model does all of it, a character walk
 # that keeps its state across lines:
 #  - single-, double-, and ANSI-C ($'...') quoted spans, with \ escapes. A quoted span with no
-#    whitespace inside is glued back into its word, as bash does (`pu"sh"` is `push`, `"-f"` is
-#    `-f`, `--no-veri"fy"` is `--no-verify`); anything longer is data. A backslash-newline in code
-#    joins the next line with nothing in between, so a word or flag split across lines stays whole;
+#    whitespace, separator, newline, or substitution inside is glued back into its word, as bash
+#    does (`pu"sh"` is `push`, `"-f"` is `-f`, `--no-veri"fy"` is `--no-verify`); anything else is
+#    data. A numeric escape in $'...' decodes to text the walk cannot see, so it fails closed. A
+#    backslash-newline in code joins the next line with nothing in between, so a word or flag
+#    split across lines stays whole;
 #  - `$(...)` and backticks reopen code inside double quotes and inside unquoted heredoc bodies
 #    (bash expands them there: `cat <<EOF` + `$(git push -f)` runs the push);
 #  - `$((...))`, `((...))`, `$[...]`, `${...}`, and `[...]` frames, where `<<` is a shift or
@@ -97,8 +101,9 @@ strip_data() {
     # `name()` is a function definition: what follows is a command (`f() case ...`)
     cmdpos = (kind[depth] == "(" && pushnr[depth] == NR && substr(line, pushpos[depth], i - pushpos[depth] + 1) ~ /^\([ \t]*\)$/)
     q = save[depth]; poppedkind = kind[depth]; depth--; poppos = i
+    if (q == 2) qbad = 1                         # the enclosing string held a substitution: never glue it
   }
-  function closeq() { if (!qbad && qb != "" && qb !~ /[ \t]/) o = o qb }   # a short quoted fragment is part of its word
+  function closeq() { if (!qbad && qb != "" && qb !~ /[ \t;&|]/) o = o qb }   # a short quoted fragment is part of its word
   function droptests() { while (depth > 0 && kind[depth] == "[") depth-- }   # a test bracket cannot span a command
   BEGIN { q = 0; depth = 0; npend = 0; body = 0; cont = 0; casec[0] = 0; poppos = -1; poppedkind = ""; cmdpos = 1 }
   {
@@ -126,6 +131,7 @@ strip_data() {
       ch = c[i]
       if (q == 1) { if (ch == "\047") { q = 0; closeq() } else qb = qb ch; i++; continue }
       if (q == 3) {
+        if (ch == "\\" && c[i + 1] ~ /[xuU0-7]/) exit 3   # \x70 / \160 / \u0070: decodes to text we cannot see
         if (ch == "\\") { qb = qb c[i + 1]; i += 2; continue }
         if (ch == "\047") { q = 0; closeq() } else qb = qb ch
         i++; continue
@@ -216,6 +222,7 @@ strip_data() {
       if (ch != " " && ch != "\t") cmdpos = 0
       o = o ch; i++
     }
+    if (q == 1 || q == 2 || q == 3) qbad = 1    # a quoted span crossing a line is never glued
     if (q == 0 && !cont) droptests()
     # a body starts at the newline that ends the COMMAND (code state, no continuation), as in bash
     enter = (!body && npend > 0 && q == 0 && !cont)
@@ -262,7 +269,7 @@ while IFS= read -r SEG; do
   # force-push: --force / --force-with-lease / --mirror, -f alone or inside a flag cluster (-uf),
   # or a `+refspec` (the refspec form of --force). `--force-if-includes` alone is also caught;
   # it is a no-op without --force-with-lease, so nothing legitimate is lost.
-  if [ -n "$SEG_PUSH" ] && grep -qiE '[[:space:]]push.*[[:space:]](--force-with-lease|--force|--mirror)([^[:alnum:]]|$)|[[:space:]]push.*[[:space:]]-[A-Za-z]*f[A-Za-z]*([^[:alnum:]]|$)|[[:space:]]push.*[[:space:]]\+[^[:space:]]' <<<"$SEG"; then
+  if [ -n "$SEG_PUSH" ] && { grep -qiE '[[:space:]]push.*[[:space:]](--force-with-lease|--force|--mirror)([^[:alnum:]]|$)|[[:space:]]push.*[[:space:]]\+[^[:space:]]' <<<"$SEG" || grep -qE '[[:space:]]push.*[[:space:]]-[A-Za-z]*f[A-Za-z]*([^[:alnum:]]|$)' <<<"$SEG"; }; then
     echo "Blocked: force-push. Protected-branch discipline (CLAUDE.md §9)." >&2; exit 2
   fi
 

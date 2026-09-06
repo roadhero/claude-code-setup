@@ -335,6 +335,22 @@ run "flag in quotes"                         2 'git push "-f" origin main'
 run "flag split by quotes"                   2 'git commit --no-veri"fy" -m x'
 run "flag as an ANSI-C string"               2 'git commit $'"'"'--no-verify'"'"' -m x'
 run "one-word quoted message is harmless"    0 'git commit -m "tidy"'
+run "quoted ; is data, flag stays with git"  2 'git commit -m "x;" --no-verify'
+run "quoted ; in a -c value"                 2 'git -c "a.b=y;" push --force origin main'
+run "quoted | in a -c value"                 2 'git -c '"'"'a.b=y|'"'"' push -f origin main'
+run "ANSI-C & in a -c value"                 2 'git -c $'"'"'a.b=y&'"'"' push -f origin main'
+run "message with ; then a plain push"       0 'git commit -m "a;b" && git push origin feat/x'
+run "ANSI-C hex escape in the subcommand"    2 'git $'"'"'\x70ush'"'"' --force origin main'
+run "ANSI-C octal escape in the subcommand"  2 'git $'"'"'\160ush'"'"' --force origin main'
+run "ANSI-C hex escape in the flag"          2 'git push $'"'"'\x2d\x66'"'"' origin main'
+run "ANSI-C unicode escape"                  2 'git $'"'"'push'"'"' --force origin main'
+run "commit -F is not a force flag"          0 'git commit -m "push" -F /dev/null'
+DENSE=$(for _ in $(seq 1 600); do printf '  "key": "value",\n'; done)
+run "quote-dense non-git heredoc is fast"    0 "cat > package.json <<'EOF'
+{
+$DENSE
+}
+EOF"
 run "quoted message with spaces stays data"  0 'git commit -m "never git push -f"'
 MANY=$(for _ in $(seq 1 20); do printf ' <<A'; done)
 run "twenty heredocs on one line fail closed" 2 ": $MANY
