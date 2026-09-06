@@ -5,7 +5,8 @@
 # This is a backstop behind the settings.json deny rules and plan mode, not a sandbox. Known,
 # accepted limits: variable indirection (`p=push; git $p -f`), git aliases defined in an earlier
 # call, `git config core.hooksPath` set in an earlier call, flags fed through a pipe (`xargs`),
-# and flags spelled with quoting tricks (`--no-veri"fy"`, `$'--no-verify'`, unique-prefix `--no-veri`).
+# flags spelled with quoting tricks (`--no-veri"fy"`, `$'--no-verify'`, unique-prefix `--no-veri`),
+# and a `case` pattern's `)` inside a double-quoted `$(...)`, which closes the substitution early.
 export LC_ALL=C   # byte-oriented grep/awk/tr: an invalid UTF-8 byte must not make a tool drop the rest of the input
 INPUT=$(cat)
 
@@ -35,64 +36,70 @@ if [ ${#CMD} -gt 262144 ]; then
   exit 2
 fi
 
-# Join backslash-newline continuations so a flag on its own line stays with its subcommand.
-CMD=${CMD//\\$'\n'/ }
-
 # Classify per command segment, not per Bash call: `git commit -m ok && git push -f` is a commit
 # AND a force-push, and each segment is judged on its own. Data is stripped first so a commit
 # MESSAGE or a file body that merely mentions `push --force` or `--no-verify` (or contains `;`)
 # can't trip a flag check or split a segment. One quote model does all of it, a character walk
-# that keeps its state across lines: single-, double-, and ANSI-C ($'...') quoted spans (with
-# \ escapes), `$(...)` and backtick substitutions that reopen code inside double quotes,
-# `$((...))` / `((...))` arithmetic (where `<<` is a shift, not a heredoc), `#` comments, and
-# heredoc bodies (`cat > f <<'EOF' ... EOF`, `git commit -F - <<EOF ...`), which are data bash
-# never runs. A `<<WORD` marker counts only in code, never inside a string, a comment, or
-# arithmetic: honoring one there would let a real command hide behind a fake terminator line.
+# that keeps its state across lines:
+#  - single-, double-, and ANSI-C ($'...') quoted spans, with \ escapes; a backslash-newline in
+#    code joins the next line, so a flag on its own line stays with its subcommand;
+#  - `$(...)` and backticks reopen code inside double quotes and inside unquoted heredoc bodies
+#    (bash expands them there: `cat <<EOF` + `$(git push -f)` runs the push);
+#  - `$((...))`, `((...))`, `$[...]` arithmetic, where `<<` is a shift, not a heredoc;
+#  - `#` comments to end of line;
+#  - heredoc bodies, dropped line by line up to the terminator (`EOF)` also closes a `$(`,
+#    `<<-` allows leading tabs, an unterminated body runs to end of input as in bash). A `<<WORD`
+#    marker counts only in code, never inside a string, a comment, or arithmetic: honoring one
+#    there would let a real command hide behind a fake terminator line.
 # Every divergence from bash is meant to err toward stripping LESS (a false block at worst),
 # never more. If the walk itself fails, the hook fails closed (pipefail below).
 strip_data() {
   awk '
-  BEGIN { q = 0; depth = 0; npend = 0; body = 0 }
+  # q: 0 code, 1 single quotes, 2 double quotes, 3 $'"'"'...'"'"', 4 unquoted heredoc body, 5 quoted heredoc body
+  BEGIN { q = 0; depth = 0; npend = 0; body = 0; cont = 0 }
   {
     line = $0
-    if (body) {                                  # inside a heredoc body: drop lines up to the terminator
+    if (body) {
       t = line
       if (pdash[1]) sub(/^\t+/, "", t)
       tail = ""
-      while (t ~ /\)$/) { t = substr(t, 1, length(t) - 1); tail = tail ")" }   # `EOF)` closes a $( too
-      if (t != pword[1]) next
-      for (k = 1; k < npend; k++) { pword[k] = pword[k + 1]; pdash[k] = pdash[k + 1] }
-      npend--
-      if (npend == 0) body = 0
-      line = tail
+      while (t ~ /\)$/) { t = substr(t, 1, length(t) - 1); tail = tail ")" }
+      if (t == pword[1]) {                       # terminator: leave this body, walk any `)` tail as code
+        for (k = 1; k < npend; k++) { pword[k] = pword[k + 1]; pdash[k] = pdash[k + 1]; pq[k] = pq[k + 1] }
+        npend--
+        if (npend == 0) { body = 0; q = bodyq } else q = (pq[1] ? 5 : 4)
+        line = tail
+      } else if (q == 5) next                    # quoted-delimiter body: inert, drop the line
     }
     n = split(line, c, "")
     o = ""
     i = 1
     while (i <= n) {
       ch = c[i]
-      if (q == 1) { if (ch == "\047") q = 0; i++; continue }              # inside single quotes
-      if (q == 3) { if (ch == "\\") { i += 2; continue } if (ch == "\047") q = 0; i++; continue }   # inside $'...'
-      if (q == 2) {                                                        # inside double quotes
+      if (q == 1) { if (ch == "\047") q = 0; i++; continue }
+      if (q == 3) { if (ch == "\\") { i += 2; continue } if (ch == "\047") q = 0; i++; continue }
+      if (q == 2 || q == 4) {                    # data that still expands substitutions
         if (ch == "\\") { i += 2; continue }
-        if (ch == "\"") { q = 0; i++; continue }
-        if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { kind[++depth] = "(("; save[depth] = 2; q = 0; o = o " "; i += 3; continue }
-        if (ch == "$" && c[i + 1] == "(") { kind[++depth] = "("; save[depth] = 2; q = 0; o = o " "; i += 2; continue }
-        if (ch == "`") { kind[++depth] = "`"; save[depth] = 2; q = 0; o = o " "; i++; continue }
+        if (q == 2 && ch == "\"") { q = 0; i++; continue }
+        if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { kind[++depth] = "(("; save[depth] = q; q = 0; o = o " "; i += 3; continue }
+        if (ch == "$" && c[i + 1] == "(") { kind[++depth] = "("; save[depth] = q; q = 0; o = o " "; i += 2; continue }
+        if (ch == "`") { kind[++depth] = "`"; save[depth] = q; q = 0; o = o " "; i++; continue }
         i++; continue
       }
-      arith = (depth > 0 && (kind[depth] == "((" || kind[depth] == "["))
-      if (ch == "\\") { o = o ch c[i + 1]; i += 2; continue }              # code from here on
+      arith = (depth > 0 && (kind[depth] == "((" || kind[depth] == "[" || kind[depth] == "(a"))
+      if (ch == "\\") { if (i == n) { cont = 1; i++; continue } o = o ch c[i + 1]; i += 2; continue }
       if (ch == "$" && c[i + 1] == "\047") { q = 3; i += 2; continue }
       if (ch == "\047") { q = 1; i++; continue }
       if (ch == "\"") { q = 2; i++; continue }
-      if (ch == "#" && (i == 1 || c[i - 1] ~ /[ \t;&|()`]/)) break        # comment to end of line
+      if (ch == "#" && (i == 1 || c[i - 1] ~ /[ \t;&|()`]/)) break
       if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { kind[++depth] = "(("; save[depth] = 0; o = o " "; i += 3; continue }
       if (ch == "$" && c[i + 1] == "[") { kind[++depth] = "["; save[depth] = 0; o = o " "; i += 2; continue }
       if (ch == "$" && c[i + 1] == "(") { kind[++depth] = "("; save[depth] = 0; o = o "$("; i += 2; continue }
-      if (ch == "(" && c[i + 1] == "(" && !arith) { kind[++depth] = "(("; save[depth] = 0; o = o " "; i += 2; continue }
+      if (ch == "(" && arith) { kind[++depth] = "(a"; save[depth] = 0; o = o " "; i++; continue }
+      if (ch == "(" && c[i + 1] == "(") { kind[++depth] = "(("; save[depth] = 0; o = o " "; i += 2; continue }
       if (ch == "(") { kind[++depth] = "("; save[depth] = 0; o = o ch; i++; continue }
       if (ch == ")" && c[i + 1] == ")" && depth > 0 && kind[depth] == "((") { q = save[depth--]; o = o " "; i += 2; continue }
+      if (ch == ")" && depth > 0 && kind[depth] == "(a") { q = save[depth--]; o = o " "; i++; continue }
       if (ch == "]" && depth > 0 && kind[depth] == "[") { q = save[depth--]; o = o " "; i++; continue }
       if (ch == ")" && depth > 0 && kind[depth] == "(") { q = save[depth--]; o = o ch; i++; continue }
       if (ch == "`") {
@@ -103,16 +110,23 @@ strip_data() {
         j = i + 2; dash = 0
         if (c[j] == "-") { dash = 1; j++ }
         while (c[j] == " " || c[j] == "\t") j++
-        w = ""
-        while (j <= n && c[j] !~ /[ \t;&|<>()]/) { w = w c[j]; j++ }
-        gsub(/[\047"\\]/, "", w)
-        if (w != "") { pword[++npend] = w; pdash[npend] = dash }
+        w = ""; quoted = 0
+        while (j <= n && c[j] !~ /[ \t;&|<>()]/) {
+          if (c[j] == "\047" || c[j] == "\"") {  # a quoted delimiter may contain anything up to its closing quote
+            qc = c[j]; quoted = 1; j++
+            while (j <= n && c[j] != qc) { w = w c[j]; j++ }
+            j++; continue
+          }
+          if (c[j] == "\\") { quoted = 1; j++; if (j <= n) { w = w c[j]; j++ }; continue }
+          w = w c[j]; j++
+        }
+        if (w != "") { pword[++npend] = w; pdash[npend] = dash; pq[npend] = quoted }
         o = o "<<"; i = j; continue
       }
       o = o ch; i++
     }
-    print o
-    if (npend > 0) body = 1
+    if (cont) { printf "%s ", o; cont = 0 } else print o
+    if (!body && npend > 0) { body = 1; bodyq = q; q = (pq[1] ? 5 : 4) }
   }'
 }
 if ! STRIPPED=$(set -o pipefail; printf '%s' "$CMD" | strip_data); then

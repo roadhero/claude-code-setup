@@ -197,6 +197,42 @@ run "ANSI-C quote with an escaped quote"     2 'git commit -m $'"'"'a\'"'"'b'"'"
 git push --force origin main'
 run "ANSI-C message mentioning a flag"       0 'git commit -m $'"'"'docs: x\nnever git push -f'"'"''
 run "invalid UTF-8 byte before a push"       2 "$(printf 'cat \377\377 x\ngit push --force origin main')"
+run "substitution in an unquoted heredoc"    2 'cat <<EOF
+$(git push -f origin main)
+EOF'
+run "backticks in an unquoted heredoc"       2 'cat > notes.md <<EOF
+`git push --force origin main`
+EOF'
+run "substitution in an unquoted -m heredoc" 2 'git commit -m "$(cat <<EOF
+feat: x $(git push -f origin main)
+EOF
+)"'
+run "substitution in a quoted heredoc is text" 0 'cat > notes.md <<'"'"'EOF'"'"'
+$(git push -f origin main) is not run here
+EOF'
+run "body line ending in backslash"          2 'cat <<'"'"'EOF'"'"'
+foo\
+EOF
+git push -f origin main'
+run "paren nested inside arithmetic"         2 'echo $(( (1<<2) ))
+git push -f origin main'
+run "paren nested inside (( )) command"      2 '(( x = (1<<2) ))
+git push -f origin main'
+run "two heredocs on one line, push after"   2 'cat <<A <<B
+git push -f in body A
+A
+git push -f in body B
+B
+git push -f origin main'
+run "two heredocs on one line, nothing after" 0 'cat <<A <<B
+git push -f in body A
+A
+git push -f in body B
+B'
+run "quoted delimiter with a space"          2 'cat <<"E OF"
+body
+E OF
+git push -f origin main'
 BIG=$(head -c 300000 /dev/zero | tr '\0' 'a')
 run "oversized command fails closed"         2 "git commit -m $BIG"
 
