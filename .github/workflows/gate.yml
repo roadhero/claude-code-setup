@@ -14,7 +14,7 @@ jobs:
     name: Local quality gate (CLAUDE.md §19.3)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Install shellcheck and jq
         run: sudo apt-get update -q && sudo apt-get install -y -q shellcheck jq
