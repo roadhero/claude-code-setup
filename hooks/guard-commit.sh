@@ -27,7 +27,7 @@
 # `n` in the key id, an unquoted `*`, `?`, `[`, or `{a,b}` in a commit or push (bash expands it
 # when the command runs; quote it, or list the files), an expansion between a shell and its
 # option (`bash $a -c`: bash may see nothing there), git config passed through the environment in
-# a commit call (`--config-env`, `GIT_CONFIG_*`), a commit message mentioning `-c core.hooksPath`, a diff over 16 MB (commit
+# a commit or push call (`--config-env`, `GIT_CONFIG_*`), a commit message mentioning `-c core.hooksPath`, a diff over 16 MB (commit
 # large binaries separately, or via LFS), and an ANSI-C numeric escape (`$'\033[0m'`) in a call
 # that also mentions git, commit, or push. A call whose every one of those words is itself
 # numerically encoded (`$'\x67it' $'\x70ush'`) is the splice limit above.
@@ -144,7 +144,7 @@ strip_data() {
   # a short quoted fragment is part of its word; a dropped span leaves an empty "" so the
   # argument still counts as one (`-m "two words" file` keeps `file` as the pathspec it is);
   # an empty pair (`commi""t`) is nothing, as in bash
-  function closeq() { if (!qbad && qb != "" && qb !~ /[ \t;&|*?\[{()<>]/) o = o qb; else if (qbad) o = o "\"$\""; else if (qb != "") o = o "\"\"" }
+  function closeq() { if (!qbad && qb != "" && qb !~ /[ \t;&|*?\[{()<>]/) o = o qb; else if (!qbad && qb != "") o = o "\"\"" }
   function droptests() { while (depth > 0 && kind[depth] == "[") depth-- }   # a test bracket cannot span a command
   function insubst(   k) { for (k = depth; k > 0; k--) if (kind[k] == "$(" || kind[k] == "`" || kind[k] == "<(") return 1; return 0 }
   function inframe(   k) { for (k = depth; k > 0; k--) if (kind[k] != "(") return 1; return 0 }   # anything but a bare subshell
@@ -186,6 +186,7 @@ strip_data() {
       if (q == 2 || q == 4) {                    # data that still expands substitutions
         if (ch == "\\") { if (q == 2) qb = qb c[i + 1]; i += 2; continue }
         if (q == 2 && ch == "\"") { q = 0; closeq(); i++; continue }
+        if (inbrace() && ((ch == "$" && c[i + 1] == "(") || ch == "`")) refuse("a substitution inside ${...}")
         if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { qbad = 1; push("$((", q); q = 0; o = o " "; i += 3; continue }
         if (ch == "$" && c[i + 1] == "(") { qbad = 1; push("$(", q); q = 0; o = o "$( "; i += 2; continue }
         if (ch == "$" && c[i + 1] == "{") {
@@ -256,7 +257,7 @@ strip_data() {
           }
           top = (depth > 0) ? kind[depth] : ""
         }
-        if (casec[depth] > 0) { o = o ch " "; i++; cmdpos = 1; continue }   # a case pattern terminator
+        if (casec[depth] > 0) { droptests(); o = o ch (insubst() ? " " : "\001"); i++; cmdpos = 1; continue }   # a case pattern terminator ends the pattern, as `;;` ends the command
         if (top == "(" || top == "$(" || top == "<(") { pop(); o = o ch " "; i++; continue }
         o = o ch " "; i++; continue
       }
@@ -312,6 +313,7 @@ strip_data() {
     # substitution (`-m "$(cat <<EOF ... )" --no-verify` is ONE command), in `${...}` / `$((...))`
     # / `$[...]` it is just whitespace; so there it becomes a space. Inside a quoted span or a body
     # line it is part of a word.
+    if (inbrace()) o = substr(o, 1, bmark)      # a `${...}` word spanning lines: none of it reaches the output
     if (cont) printf "%s", o
     else if (q == 0 && !inframe()) print o
     else if (q == 0 || q == 4) printf "%s ", o
@@ -381,14 +383,22 @@ while IFS= read -r SEG; do
   # a commit with -a/-i/-o, or any bare token after the subcommand that is not the value of a
   # message-like option, commits working-tree content, not just the index: scan it
   if [ -n "$SEG_COMMIT" ]; then
-    if has '[[:space:]]commit.*[[:space:]](-[A-Za-z]*[aio][A-Za-z]*|--all|--include|--only)([^[:alnum:]]|$)' "$SEG"; then HAS_WORKTREE=1; fi
-    SEEN=""; WANT=""
+    if hasc '[[:space:]]commit.*[[:space:]](-[A-Za-z]*[aio][A-Za-z]*|--all|--include|--only)([^[:alnum:]]|$)' "$SEG"; then HAS_WORKTREE=1; fi
+    SEEN=""; WANT=""; SUB=0
     for T in $SEG; do   # (unquoted on purpose: the walker removed every quote and set -f is on)
       if [ -n "$SEEN" ]; then
+        # the words of a `$(...)` or `...` are the substitution's, never pathspecs (`-m "$(cat <<EOF ...)"`)
+        # shellcheck disable=SC2016  # `$(` is a literal pattern
+        case "$T" in
+          *'$('*) SUB=$((SUB + 1)); WANT=""; continue ;;
+          *'`'*) B=${T//[!\`]/}; if [ $((${#B} % 2)) -eq 1 ]; then if [ "$SUB" -gt 0 ]; then SUB=$((SUB - 1)); else SUB=$((SUB + 1)); fi; fi; WANT=""; continue ;;
+        esac
+        if [ "$SUB" -gt 0 ]; then case "$T" in *')'*) SUB=$((SUB - 1)) ;; esac; continue; fi
         if [ -n "$WANT" ]; then WANT=""; continue; fi   # the value of the previous option, whatever its shape
         case "$T" in
           -m|-F|-C|-c|-t|--message|--file|--author|--date|--trailer|--template|--fixup|--squash|--reedit-message|--reuse-message|--cleanup) WANT=1 ;;
-          -[A-Za-z]*[mFCct]) WANT=1 ;;                 # `-qm fix`: the cluster ends in an option that takes the next word
+          -S*) ;;                                      # `-S<keyid>`: the key is attached, nothing follows
+          -[aiosvqnepz]*[mFCct]) WANT=1 ;;             # `-qm fix`: no-value flags then an option that takes the next word
           *[\<\>]) WANT=1 ;;                          # `2>` from `2>&1`: the next token is its target, not a pathspec
           -*|*[\<\>]*) ;;
           *) HAS_WORKTREE=1 ;;
@@ -420,10 +430,15 @@ done <<<"$SEGMENTS"
 
 [ -z "$IS_COMMIT$HAS_PUSH" ] && exit 0
 
+# git can take config from the environment (`--config-env`, `GIT_CONFIG_COUNT`/`KEY_n`/`VALUE_n`,
+# `GIT_CONFIG_PARAMETERS`), where the key or the value is out of every check's sight: refuse.
+if has '--config-env|GIT_CONFIG_(COUNT|KEY_[0-9]+|VALUE_[0-9]+|PARAMETERS)=' "$STRIPPED"; then
+  echo "Blocked: git config passed through the environment (--config-env, GIT_CONFIG_*) in the same call as a commit/push cannot be inspected. Set it with -c or in the repo config." >&2; exit 2
+fi
 # Re-pointing core.hooksPath anywhere in the same call (`git -c core.hooksPath=x commit`,
-# `git config core.hooksPath x; git commit`, GIT_CONFIG_PARAMETERS=...) is the same bypass.
+# `git config core.hooksPath x; git commit`) is the same bypass as --no-verify.
 # (checked on the raw command as well: a quoted value with a space in it is stripped as data)
-if has 'core\.hooksPath|GIT_CONFIG_(PARAMETERS|COUNT|KEY_)' "$STRIPPED" || has '(-c[[:space:]]*["'"'"']?core\.hooksPath|config[^;&|]*core\.hooksPath|GIT_CONFIG_PARAMETERS)' "$CMD"; then
+if has 'core\.hooksPath' "$STRIPPED" || has '(-c[[:space:]]*["'"'"']?core\.hooksPath|config[^;&|]*core\.hooksPath)' "$CMD"; then
   echo "Blocked: core.hooksPath override bypasses the repo's git hooks (CLAUDE.md §14)." >&2; exit 2
 fi
 
@@ -445,10 +460,6 @@ fi
 if has "(user\.name=|GIT_(AUTHOR|COMMITTER)_NAME=|--author[= ])([^[:space:]]*[^[:alnum:][:space:]])?${IDENT}([^[:alnum:]]|\$)" "$STRIPPED" ||
    has "(user\.name=|GIT_(AUTHOR|COMMITTER)_NAME=|--author[= ])[\"']([^\"']*[^[:alnum:]\"'])?${IDENT}([^[:alnum:]]|\$)" "$CMD"; then
   echo "Blocked: the commit sets a committer or author that is not a human (CLAUDE.md §2)." >&2; exit 2
-fi
-# git can also take config from the environment, where the value is out of this check's sight
-if has '--config-env|GIT_CONFIG_(COUNT|KEY_[0-9]+|VALUE_[0-9]+|PARAMETERS)=' "$STRIPPED"; then
-  echo "Blocked: git config passed through the environment (--config-env, GIT_CONFIG_*) in the same call as a commit cannot be inspected. Set it with -c or in the repo config." >&2; exit 2
 fi
 
 # no AI attribution in the commit message — scan the command only, not the staged diff.

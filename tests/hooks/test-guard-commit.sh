@@ -595,6 +595,18 @@ run "[ in a brace default then a bot committer" 2 'git status ${x:-[} ; git -c u
 run "[ in a subscripted brace default then push -f" 2 'echo ${a[0]:-[} ; git push -f origin main ; : ]}'
 run "[] in a brace default then a plain commit" 0 'echo ${x:-[]}; git commit -m x'
 run "( left open inside a brace is refused"  2 'echo ${x:-(} ; git commit -m x'
+run "bash with a three-line \${ } then -c"    2 'a=; bash ${a-
+foo
+bar} -c "git push -f origin main"'
+run "bash with a continued \${ } then -c"     2 'bash ${x:-a\
+b} -c "git push -f origin main"'
+run "case pattern then a plain commit"       0 'case "$1" in build) make;; *) git commit -m y;; esac'
+run "case pattern with ? then a plain push"  0 'case x in a?) git push origin main;; esac'
+run "case pattern inside a message substitution" 0 'git commit -m "$(case x in a) echo y;; esac)"'
+run "GIT_CONFIG_VALUE user.name is refused"  2 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.email GIT_CONFIG_VALUE_0=bot@example.com git commit -m x'
+run "GIT_CONFIG_COUNT on a push is refused"  2 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/tmp git push origin main'
+run "GIT_CONFIG_GLOBAL on a commit is allowed" 0 'GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git commit -m x'
+run "substitution inside a quoted \${ } is refused" 2 'git commit -m "${v:-"$(git describe)"}"'
 run ") inside a quoted default then push -f" 2 ': "${x:-)}" ; git push -f origin main #"'
 run ") inside a quoted replacement then --no-verify" 2 ': "${x/)/y}" ; git commit --no-verify -m x #"'
 run ") inside a default, echo form"          2 'echo "${x:-)}"; git push origin main --force; echo "x <<EOF
@@ -742,6 +754,18 @@ run "dirty tracked secret, plain commit to /dev/null" 0 'git commit -m x >/dev/n
 run "dirty tracked secret, -qm cluster takes a value" 0 'git commit -qm fix'
 run "dirty tracked secret, -sm cluster takes a value" 0 'git commit -sm fix'
 run "dirty tracked secret, quoted a>b is a pathspec" 2 'git commit -m x "a>b"'
+run "dirty tracked secret, heredoc message, no pathspec" 0 'git commit -m "$(cat <<'"'"'EOF'"'"'
+fix: x
+
+body
+EOF
+)"'
+run "dirty tracked secret, \${msg} message, no pathspec" 0 'git commit -m "${msg}"'
+run "dirty tracked secret, prefixed \${x} message, no pathspec" 0 'git commit -m "fix: ${x}"'
+run "dirty tracked secret, backtick message, no pathspec" 0 'git commit -m "`date`"'
+run "dirty tracked secret, backtick message then pathspec" 2 'git commit -m "`date`" tracked.txt'
+run "dirty tracked secret, substitution message then pathspec" 2 'git commit -m "$(date)" tracked.txt'
+run "dirty tracked secret, -SDEADBEEF is not -a" 0 'git commit -SDEADBEEF -m x'
 run "dirty tracked secret, add && commit"    2 'git add tracked.txt && git commit -m "x"'
 git checkout -q -- tracked.txt
 
