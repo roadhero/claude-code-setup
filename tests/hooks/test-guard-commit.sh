@@ -429,6 +429,20 @@ EOF
 git push -f origin main'
 run "numeric escape with no git is allowed"  0 'find . -print0 | while IFS= read -r -d $'"'"'\0'"'"' f; do echo "$f"; done'
 run "numeric escape with a commit still refused" 2 'git commit -m x; echo $'"'"'\033[0m'"'"''
+
+# --- a newline inside ${ }, $(( )) or $[ ] does not end the enclosing command --------------------
+run "newline inside \${ } before --force"    2 'git push origin main ${x:-
+} --force'
+run "newline inside quoted \${ } before --no-verify" 2 'git commit -m "${x:-
+}" --no-verify'
+run "newline inside \$(( )) before --force"  2 'git push origin main $((1+
+1)) --force'
+run "newline inside \$[ ] before --force"    2 'git push origin main $[1+
+1] --force'
+run "bash -x -c wrapper"                     2 'bash -x -c "git push --force origin main"'
+run "bash --norc -c wrapper"                 2 'bash --norc -c "git commit --no-verify -m x"'
+run "bash -o pipefail -c wrapper"            2 'bash -o pipefail -c "git commit --no-verify -m x"'
+run "ksh -c wrapper"                         2 'ksh -c "git push --force origin main"'
 DENSE=$(for _ in $(seq 1 600); do printf '  "key": "value",\n'; done)
 run "quote-dense non-git heredoc is allowed" 0 "cat > package.json <<'EOF'
 {
@@ -526,6 +540,27 @@ git rm -q --cached color.txt && rm color.txt
 ln -s /nonexistent-target dangling
 run "dangling symlink does not break add && commit" 0 'git add dangling && git commit -m "x"'
 rm dangling
+
+printf '*.txt -diff\n' >.gitattributes
+printf 'aws_key=%s\n' "$AWS_KEY" >nodiff.txt
+git add .gitattributes nodiff.txt
+run "-diff attribute does not hide a staged secret" 2 'git commit -m "x"'
+git rm -q --cached .gitattributes nodiff.txt && rm .gitattributes nodiff.txt
+
+printf 'aws_key=%s\n\0\n' "$AWS_KEY" >nul.txt
+git add nul.txt
+run "NUL byte does not hide a staged secret" 2 'git commit -m "x"'
+git rm -q --cached nul.txt
+run "NUL byte does not hide an untracked secret" 2 'git add nul.txt && git commit -m "x"'
+rm nul.txt
+
+printf '*.txt diff=hide\n' >.gitattributes
+git config diff.hide.textconv 'sed s/AKIA/XXXX/'
+printf 'aws_key=%s\n' "$AWS_KEY" >conv.txt
+git add .gitattributes conv.txt
+run "textconv does not rewrite the staged secret" 2 'git commit -m "x"'
+git config --unset diff.hide.textconv
+git rm -q --cached .gitattributes conv.txt && rm .gitattributes conv.txt
 
 printf 'aws_key=%s\n' "$AWS_KEY" >config.txt
 git add config.txt

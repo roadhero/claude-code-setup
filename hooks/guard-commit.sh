@@ -9,12 +9,17 @@
 # unique-prefix long options (`--no-veri`), a word spliced by any expansion or substitution
 # (`git pu${x}sh`, `git pu$(echo s)h`), a bare pathspec on `git commit` (only `-a`, `-i`, `-o`
 # and pathspec-looking tokens trigger the working-tree scan), and the committer and secrets
-# checks reading the current directory's repo (`git -C elsewhere commit`). Known false blocks
-# (safe direction): a one-word quoted argument that spells a flag or subcommand (`-m "--no-verify"`,
-# `-m "eval"`, `tag -m "push" -f`), `--force-if-includes` on its own, `-S<keyid>` with an `n` in
-# the key id, a commit message mentioning `-c core.hooksPath`, and an ANSI-C numeric escape
-# (`$'\033[0m'`) in a call that also mentions git, commit, or push. A call whose every one of
-# those words is itself numerically encoded (`$'\x67it' $'\x70ush'`) is the splice limit above.
+# checks reading the current directory's repo (`git -C elsewhere commit`), a `filter.*.clean`
+# set in an earlier call (it rewrites the working-tree diff the guard reads), and git run from
+# another interpreter (`python3 -c "os.system('git push -f')"`, `perl -e`, `node -e`, awk's
+# `system()`), whose program is data to this walk. Known false blocks (safe direction): a one-word
+# quoted argument that spells a flag or subcommand (`-m "--no-verify"`, `-m "eval"`,
+# `tag -m "push" -f`), a `-n` or `-f` on another command inside the same `$(...)` as a commit or
+# push (`-m "$(git log -1 | head -n 1)"`), `--force-if-includes` on its own, `-S<keyid>` with an
+# `n` in the key id, a commit message mentioning `-c core.hooksPath`, a diff over 16 MB (commit
+# large binaries separately, or via LFS), and an ANSI-C numeric escape (`$'\033[0m'`) in a call
+# that also mentions git, commit, or push. A call whose every one of those words is itself
+# numerically encoded (`$'\x67it' $'\x70ush'`) is the splice limit above.
 #
 # No `grep -q` ever reads from a pipe: it exits on the first match, and under pipefail the
 # upstream writer's SIGPIPE would read as "no match". Checks read here-strings, and every grep
@@ -123,6 +128,7 @@ strip_data() {
   function closeq() { if (!qbad && qb != "" && qb !~ /[ \t;&|]/) o = o qb }   # a short quoted fragment is part of its word
   function droptests() { while (depth > 0 && kind[depth] == "[") depth-- }   # a test bracket cannot span a command
   function insubst(   k) { for (k = depth; k > 0; k--) if (kind[k] == "$(" || kind[k] == "`") return 1; return 0 }
+  function inframe(   k) { for (k = depth; k > 0; k--) if (kind[k] != "(") return 1; return 0 }   # anything but a bare subshell
   BEGIN { q = 0; depth = 0; npend = 0; body = 0; cont = 0; casec[0] = 0; poppos = -1; poppedkind = ""; cmdpos = 1; kwlead = 0 }
   {
     line = $0
@@ -166,7 +172,7 @@ strip_data() {
         i++; continue
       }
       top = (depth > 0) ? kind[depth] : ""
-      noheredoc = (top == "((" || top == "$((" || top == "[" || top == "(a" || top == "${")
+      noheredoc = (top == "((" || top == "$((" || top == "[" || top == "$[" || top == "(a" || top == "${")
       if (ch == "\\") { if (i == n) { cont = 1; i++; continue } o = o c[i + 1]; i += 2; continue }   # `\-f` is `-f`
       if (ch == "$" && c[i + 1] == "\047") { q = 3; qb = ""; qbad = 0; i += 2; continue }
       if (ch == "\047") { q = 1; qb = ""; qbad = 0; i++; continue }
@@ -177,7 +183,7 @@ strip_data() {
       if (ch == "#" && !noheredoc && ((i == 1 && !joined) || (i > 1 && c[i - 1] ~ /[ \t;&|(]/) || (c[i - 1] == ")" && poppos == i - 1 && (poppedkind == "(" || poppedkind == "((")))) break
       # `;` `&` `|` separate commands only in code; inside an expansion or arithmetic they are text
       if (ch == ";" || ch == "&" || ch == "|") {
-        if (top == "${" || top == "((" || top == "$((" || top == "(a") { o = o " "; i++; continue }
+        if (top == "${" || top == "((" || top == "$((" || top == "(a" || top == "$[") { o = o " "; i++; continue }
         # inside `$(...)` a separator ends a command OF THE SUBSTITUTION, never the enclosing one
         # (`git push origin "$(a | b)" --force` is one push): a space keeps the flag with its git
         if (insubst()) { droptests(); cmdpos = 1; o = o " "; i++; continue }
@@ -185,7 +191,7 @@ strip_data() {
       }
       if (ch == "{" || ch == "!") { cmdpos = 1; o = o ch; i++; continue }
       if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { push("$((", 0); o = o " "; i += 3; continue }
-      if (ch == "$" && c[i + 1] == "[") { push("[", 0); o = o " "; i += 2; continue }
+      if (ch == "$" && c[i + 1] == "[") { push("$[", 0); o = o " "; i += 2; continue }
       if (ch == "$" && c[i + 1] == "{") { push("${", 0); o = o " "; i += 2; continue }
       if (ch == "$" && c[i + 1] == "(") { push("$(", 0); o = o "$("; i += 2; continue }
       if (ch == "[") { push("[", 0); o = o " "; i++; continue }
@@ -194,11 +200,11 @@ strip_data() {
       if (ch == "(") { push("(", 0); o = o ch; i++; continue }
       if (ch == ")" && c[i + 1] == ")" && (top == "((" || top == "$((")) { pop(); poppos = i + 1; o = o " "; i += 2; continue }
       if (ch == ")" && top == "(a") { pop(); o = o " "; i++; continue }
-      if (ch == "]" && top == "[") { pop(); o = o " "; i++; continue }
+      if (ch == "]" && (top == "[" || top == "$[")) { pop(); o = o " "; i++; continue }
       if (ch == "}" && top == "${") { pop(); o = o " "; i++; continue }
       if (ch == ")") {
         if (top == "[" || top == "${") {         # a frame `)` cannot close: unwind to the `(` it does close
-          while (depth > 0 && kind[depth] != "(" && kind[depth] != "$(" && kind[depth] != "`" && kind[depth] != "((" && kind[depth] != "$((") depth--
+          while (depth > 0 && kind[depth] != "(" && kind[depth] != "$(" && kind[depth] != "`" && kind[depth] != "((" && kind[depth] != "$((") depth--   # drops [ $[ ${ (a
           top = (depth > 0) ? kind[depth] : ""
         }
         if (casec[depth] > 0) { o = o ch; i++; cmdpos = 1; continue }   # a case pattern terminator
@@ -252,11 +258,13 @@ strip_data() {
     if (q == 0 && !cont) droptests()
     # a body starts at the newline that ends the COMMAND (code state, no continuation), as in bash
     enter = (!body && npend > 0 && q == 0 && !cont)
-    # A newline separates commands in code, except inside `$(...)` where it separates commands of
-    # the substitution but not the enclosing one (`-m "$(cat <<EOF ... )" --no-verify` is ONE
-    # command), so there it becomes a space; inside a quoted span or a body line it is part of a word.
+    # A newline separates commands in code at the top level or inside a bare subshell. Inside any
+    # other frame it does not end the ENCLOSING command: in `$(...)` it separates commands of the
+    # substitution (`-m "$(cat <<EOF ... )" --no-verify` is ONE command), in `${...}` / `$((...))`
+    # / `$[...]` it is just whitespace; so there it becomes a space. Inside a quoted span or a body
+    # line it is part of a word.
     if (cont) printf "%s", o
-    else if (q == 0 && !insubst()) print o
+    else if (q == 0 && !inframe()) print o
     else if (q == 0 || q == 4) printf "%s ", o
     else printf "%s", o
     if (enter) { body = 1; bodydepth = depth; q = (pq[1] ? 5 : 4) }
@@ -272,7 +280,7 @@ fi
 
 # A shell wrapper runs its quoted argument as a command, which the strip above just hid.
 # Refuse rather than guess: the unwrapped form is always available to the agent.
-if hasc '(^|[^[:alnum:]_.-])((ba|z|da)?sh[[:space:]]+-[a-z]*c|eval)([^[:alnum:]_./-]|$)' "$STRIPPED"; then
+if hasc '(^|[^[:alnum:]_.-])((ba|z|da|k|c|tc|fi)?sh([[:space:]]+[^;&|[:space:]]+)*[[:space:]]+-[a-z]*c|eval)([^[:alnum:]_./-]|$)' "$STRIPPED"; then
   echo "Blocked: git commit/push inside a shell wrapper (sh -c / bash -c / eval) cannot be inspected. Run the git command directly." >&2; exit 2
 fi
 
@@ -351,7 +359,9 @@ SECRETS='(api[_-]?key|secret[_-]?key|access[_-]?key|private[_-]?key|password|tok
 # explicitly whitelisted for commit (e.g. `!.env.example` in the scaffolder .gitignore).
 EXCL=(':(exclude)*.example' ':(exclude)*.sample' ':(exclude)*.dist' ':(exclude)*.tmpl')
 # `--no-ext-diff` and `core.fsmonitor=false` so a repo-local config cannot make the guard run a program.
-GIT_DIFF=(git -c core.fsmonitor=false diff --no-ext-diff --no-color)   # color.ui=always would hide the `+` prefix
+# Repo config must not reshape what the guard reads: no external diff, no textconv, no color,
+# no relative paths, and binary-looking content (a `-diff` attribute, a NUL byte) still as text.
+GIT_DIFF=(git -c core.fsmonitor=false diff --no-ext-diff --no-textconv --no-color --no-relative --text)
 gitfail() { echo "Blocked: guard-commit.sh could not read the diff ($1 failed). Failing closed." >&2; exit 2; }
 DIFF=$("${GIT_DIFF[@]}" --cached 2>/dev/null -- "${EXCL[@]}") || gitfail "git diff --cached"
 if [ -n "$HAS_ADD$HAS_WORKTREE" ]; then
@@ -366,7 +376,7 @@ if [ -n "$HAS_ADD" ]; then
       case "$f" in *.example|*.sample|*.dist|*.tmpl) continue ;; esac   # (a whole-name match: a newline in the name cannot fool it)
       [ -L "$f" ] && continue                # git stores a symlink's target text, never the target
       [ -f "$f" ] || continue
-      grep -siIE "$SECRETS" -- "$f" | sed 's/^/+/'
+      grep -saE -i "$SECRETS" -- "$f" | sed 's/^/+/'   # -a: a NUL byte must not make grep skip the file
       [ "${PIPESTATUS[0]}" -gt 1 ] && printf '+GUARD_SCAN_FAILED %s\n' "$f"
     done
     [ "${PIPESTATUS[0]}" -eq 0 ] || printf '+GUARD_SCAN_FAILED ls-files\n'
@@ -374,6 +384,9 @@ if [ -n "$HAS_ADD" ]; then
   UT=$(scan_untracked)
   if hasc '^\+GUARD_SCAN_FAILED' "$UT"; then gitfail "scanning an untracked file"; fi
   DIFF="$DIFF"$'\n'"$UT"
+fi
+if [ ${#DIFF} -gt 16777216 ]; then
+  echo "Blocked: guard-commit.sh will not scan a diff over 16 MB for secrets. Commit large binaries separately (or via LFS)." >&2; exit 2
 fi
 # Only ADDED lines count (`+` but not the `+++ b/file` header): removing a leaked secret from a
 # file must stay committable (§11: rotate, then scrub). No `-q` anywhere: every stage reads all of
