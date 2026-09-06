@@ -32,13 +32,29 @@ fi
 CMD=${CMD//\\$'\n'/ }
 
 # Classify per command segment, not per Bash call: `git commit -m ok && git push -f` is a commit
-# AND a force-push, and each segment is judged on its own. Quoted text is stripped first so a
-# commit MESSAGE that merely mentions `push --force` or `--no-verify` (or contains `;`) can't
-# trip a flag check or split a segment. The strip is multi-line aware (newlines are hidden as
-# \001 during sed) so a heredoc message `-m "$(cat <<'EOF' ... EOF)"` is one quoted span, and
-# escaped \" are dropped first so they cannot flip quote parity. A `git commit -F - <<EOF` body
-# is not quoted and is therefore not stripped (a false block at worst).
-STRIPPED=$(printf '%s' "$CMD" | tr '\n' '\001' | sed -e 's/\\"//g' -e 's/"[^"]*"//g' -e "s/'[^']*'//g" | tr '\001' '\n')
+# AND a force-push, and each segment is judged on its own. Data is stripped first so a commit
+# MESSAGE or a file body that merely mentions `push --force` or `--no-verify` (or contains `;`)
+# can't trip a flag check or split a segment:
+#  - heredoc bodies (`cat > f <<'EOF' ... EOF`, `git commit -F - <<EOF ...`) are dropped line by
+#    line up to the terminator. A `<<WORD` marker counts only when it sits outside quotes on its
+#    line (an even number of unescaped " and ' before it): a `<<EOF` inside a string is text, and
+#    stripping past it would let a real command hide behind a fake terminator line;
+#  - quoted spans are dropped, multi-line aware (newlines are hidden as \001 during sed) so a
+#    `-m "$(cat <<'EOF' ... EOF)"` message is one span; escaped \" go first so they cannot flip parity.
+strip_heredocs() {
+  awk '
+    skip { if ($0 ~ "^[ \t]*" word "$") skip = 0; next }
+    match($0, /<<-?[ \t]*[\047"]?[A-Za-z_][A-Za-z0-9_]*[\047"]?/) {
+      pre = substr($0, 1, RSTART - 1); gsub(/\\"/, "", pre)
+      if (gsub(/"/, "", pre) % 2 == 0 && gsub(/\047/, "", pre) % 2 == 0) {
+        word = substr($0, RSTART, RLENGTH); sub(/^<<-?[ \t]*/, "", word); gsub(/[\047"]/, "", word)
+        skip = 1
+      }
+    }
+    { print }
+  '
+}
+STRIPPED=$(printf '%s' "$CMD" | strip_heredocs | tr '\n' '\001' | sed -e 's/\\"//g' -e 's/"[^"]*"//g' -e "s/'[^']*'//g" | tr '\001' '\n')
 
 # A shell wrapper runs its quoted argument as a command, which the strip above just hid.
 # Refuse rather than guess: the unwrapped form is always available to the agent.

@@ -113,6 +113,37 @@ run "multi-line -m message"                  0 'git commit -m "docs: x
 
 why git push -f is blocked"'
 
+# --- heredoc bodies are data, not commands -----------------------------------------------------
+run "heredoc file write mentioning the hook" 0 'cat > notes.md <<'"'"'EOF'"'"'
+The hook refuses sh -c "git commit" wrappers and blocks git push -f and --no-verify.
+EOF'
+run "heredoc file write, unquoted marker"    0 'cat > notes.md <<EOF
+never run git push --force or git commit --no-verify
+EOF'
+run "commit -F - with a heredoc body"        0 'git commit -F - <<EOF
+feat: x
+
+mentions git push -f and --no-verify in the body
+EOF'
+run "<<- heredoc with a tab-indented end"    0 'cat <<-EOF
+	git push -f is documented here
+	EOF'
+run "real heredoc then force-push after it"  2 'cat <<EOF
+harmless body
+EOF
+git push -f origin main'
+run "real heredoc then --no-verify after it" 2 'cat > x.md <<EOF
+harmless body
+EOF
+git commit --no-verify -m x'
+run "fake marker inside quotes hides a push" 2 'git commit -m "a <<EOF
+b" && git push -f origin main
+EOF'
+run "fake marker inside single quotes"       2 'git commit -m '"'"'a <<EOF
+b'"'"' && git push --force origin main
+EOF'
+run "here-string is not a heredoc"           2 'cat <<<"x" && git push -f origin main'
+
 # --- chained commands: every segment is classified on its own ---------------------------------
 run "commit then force-push"                 2 'git commit -m "ok" && git push -f origin feat/x'
 run "commit; force-push"                     2 'git commit -m "ok"; git push --force origin feat/x'
