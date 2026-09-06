@@ -112,8 +112,9 @@ fi
 #    text and `#` is not a comment; an unbalanced `[` dies at the next command boundary;
 #  - `#` comments to end of line, only where bash starts one: at the start of a word, which a
 #    `)` closing `$(...)` or a closing backtick is not;
-#  - `case ... esac`, counted only in command position: a pattern's `)` does not close an
-#    enclosing `$(...)`; a `)` that the top frame cannot close unwinds to the `(` it does close;
+#  - `case ... esac`, counted only in command position: a pattern's `)` is a command boundary and
+#    does not close an enclosing `$(...)`; a `)` that the top frame cannot close unwinds to the `(`
+#    it does close;
 #    a frame or quote still open at the end of the input fails closed;
 #  - heredoc bodies, dropped line by line up to the terminator (`EOF)` also closes a `$(`,
 #    `<<-` allows leading tabs, an unterminated body runs to end of input as in bash). A `<<WORD`
@@ -142,8 +143,9 @@ strip_data() {
   }
   function refuse(why) { refused = 1; print "guard-commit.sh cannot classify this command: " why ". Rewrite it without that construct." > "/dev/stderr"; exit 3 }
   # a short quoted fragment is part of its word; a dropped span leaves an empty "" so the
-  # argument still counts as one (`-m "two words" file` keeps `file` as the pathspec it is);
-  # an empty pair (`commi""t`) is nothing, as in bash
+  # argument still counts as one (`-m "two words" file` keeps `file` as the pathspec it is),
+  # unless it held a substitution, whose own mark already stands there; an empty pair
+  # (`commi""t`) is nothing, as in bash
   function closeq() { if (!qbad && qb != "" && qb !~ /[ \t;&|*?\[{()<>]/) o = o qb; else if (!qbad && qb != "") o = o "\"\"" }
   function droptests() { while (depth > 0 && kind[depth] == "[") depth-- }   # a test bracket cannot span a command
   function insubst(   k) { for (k = depth; k > 0; k--) if (kind[k] == "$(" || kind[k] == "`" || kind[k] == "<(") return 1; return 0 }
@@ -306,7 +308,9 @@ strip_data() {
     }
     if (q == 1 || q == 2 || q == 3) qbad = 1    # a quoted span crossing a line is never glued
     if (q == 0 && !cont) droptests()
-    # a body starts at the newline that ends the COMMAND (code state, no continuation), as in bash
+    # a body starts at the newline that ends the COMMAND (code state, no continuation), as in bash;
+    # a `${...}` still open means the command has not ended, and the walk will not guess where it does
+    if (!body && npend > 0 && inbrace()) refuse("a heredoc marker on a line that ends inside ${...}")
     enter = (!body && npend > 0 && q == 0 && !cont)
     # A newline separates commands in code at the top level or inside a bare subshell. Inside any
     # other frame it does not end the ENCLOSING command: in `$(...)` it separates commands of the
@@ -383,24 +387,30 @@ while IFS= read -r SEG; do
   # a commit with -a/-i/-o, or any bare token after the subcommand that is not the value of a
   # message-like option, commits working-tree content, not just the index: scan it
   if [ -n "$SEG_COMMIT" ]; then
-    if hasc '[[:space:]]commit.*[[:space:]](-[A-Za-z]*[aio][A-Za-z]*|--all|--include|--only)([^[:alnum:]]|$)' "$SEG"; then HAS_WORKTREE=1; fi
-    SEEN=""; WANT=""; SUB=0
+    if hasc '[[:space:]]commit.*[[:space:]](-[A-Za-z]*[aiop][A-Za-z]*|--all|--include|--only|--patch|--interactive|--pathspec-from-file)([^[:alnum:]]|$)' "$SEG"; then HAS_WORKTREE=1; fi
+    SEEN=""; WANT=""; SUB=0; BT=0
     for T in $SEG; do   # (unquoted on purpose: the walker removed every quote and set -f is on)
       if [ -n "$SEEN" ]; then
-        # the words of a `$(...)` or `...` are the substitution's, never pathspecs (`-m "$(cat <<EOF ...)"`)
+        # the words of a `$(...)` or `...` are the substitution's, never pathspecs (`-m "$(cat <<EOF ...)"`):
+        # backticks toggle on an odd count per token; `$(` and `)` are counted while no backtick is open
+        case "$T" in *'`'*) B=${T//[!\`]/}; [ $((${#B} % 2)) -eq 1 ] && BT=$((1 - BT)); WANT=""; continue ;; esac
+        [ "$BT" -eq 1 ] && continue
         # shellcheck disable=SC2016  # `$(` is a literal pattern
-        case "$T" in
-          *'$('*) SUB=$((SUB + 1)); WANT=""; continue ;;
-          *'`'*) B=${T//[!\`]/}; if [ $((${#B} % 2)) -eq 1 ]; then if [ "$SUB" -gt 0 ]; then SUB=$((SUB - 1)); else SUB=$((SUB + 1)); fi; fi; WANT=""; continue ;;
-        esac
+        case "$T" in *'$('*) SUB=$((SUB + 1)); WANT=""; continue ;; esac
         if [ "$SUB" -gt 0 ]; then case "$T" in *')'*) SUB=$((SUB - 1)) ;; esac; continue; fi
         if [ -n "$WANT" ]; then WANT=""; continue; fi   # the value of the previous option, whatever its shape
+        case "$T" in
+          *[\<\>]*)                                  # a redirection glued to a word (`tracked.txt>log`, `2>`): the word stays an argument
+            case "$T" in *[\<\>]) WANT=1 ;; esac    # the operator's target is the next token, not a pathspec
+            P=${T%%[<>]*}
+            case "$P" in ''|[0-9]*) continue ;; esac   # nothing, or a descriptor number, before the operator
+            T=$P ;;
+        esac
         case "$T" in
           -m|-F|-C|-c|-t|--message|--file|--author|--date|--trailer|--template|--fixup|--squash|--reedit-message|--reuse-message|--cleanup) WANT=1 ;;
           -S*) ;;                                      # `-S<keyid>`: the key is attached, nothing follows
           -[aiosvqnepz]*[mFCct]) WANT=1 ;;             # `-qm fix`: no-value flags then an option that takes the next word
-          *[\<\>]) WANT=1 ;;                          # `2>` from `2>&1`: the next token is its target, not a pathspec
-          -*|*[\<\>]*) ;;
+          -*) ;;
           *) HAS_WORKTREE=1 ;;
         esac
       fi

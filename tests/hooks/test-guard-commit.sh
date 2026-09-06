@@ -607,6 +607,16 @@ run "GIT_CONFIG_VALUE user.name is refused"  2 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KE
 run "GIT_CONFIG_COUNT on a push is refused"  2 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/tmp git push origin main'
 run "GIT_CONFIG_GLOBAL on a commit is allowed" 0 'GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git commit -m x'
 run "substitution inside a quoted \${ } is refused" 2 'git commit -m "${v:-"$(git describe)"}"'
+run "heredoc marker on a line ending inside \${ }" 2 'cat <<EOF ${x:-
+}
+EOF
+git push -f origin main
+: }'
+run "heredoc marker inside an open \${ } then --no-verify" 2 'cat <<EOF ${x:-
+}
+EOF
+git commit --no-verify -m x
+: }'
 run ") inside a quoted default then push -f" 2 ': "${x:-)}" ; git push -f origin main #"'
 run ") inside a quoted replacement then --no-verify" 2 ': "${x/)/y}" ; git commit --no-verify -m x #"'
 run ") inside a default, echo form"          2 'echo "${x:-)}"; git push origin main --force; echo "x <<EOF
@@ -766,6 +776,14 @@ run "dirty tracked secret, backtick message, no pathspec" 0 'git commit -m "`dat
 run "dirty tracked secret, backtick message then pathspec" 2 'git commit -m "`date`" tracked.txt'
 run "dirty tracked secret, substitution message then pathspec" 2 'git commit -m "$(date)" tracked.txt'
 run "dirty tracked secret, -SDEADBEEF is not -a" 0 'git commit -SDEADBEEF -m x'
+run "dirty tracked secret, backtick with parens then pathspec" 2 'git commit -m "`(echo x)`" tracked.txt'
+run "dirty tracked secret, backtick with <( ) then pathspec" 2 'git commit -m "`cat <(date)`" tracked.txt'
+run "dirty tracked secret, pathspec glued to a redirect" 2 'git commit -m x tracked.txt>log'
+run "dirty tracked secret, pathspec glued to 2>&1" 2 'git commit -m x tracked.txt2>&1'
+run "dirty tracked secret, --pathspec-from-file" 2 'git commit -m x --pathspec-from-file=list'
+run "dirty tracked secret, --patch"          2 'git commit -p -m x'
+run "dirty tracked secret, redirect to a file, no pathspec" 0 'git commit -m x >log 2>&1'
+run "dirty tracked secret, -m \$(date) then -- pathspec" 2 'git commit -m "$(date)" -- tracked.txt'
 run "dirty tracked secret, add && commit"    2 'git add tracked.txt && git commit -m "x"'
 git checkout -q -- tracked.txt
 
