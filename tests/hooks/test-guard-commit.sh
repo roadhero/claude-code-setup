@@ -181,6 +181,25 @@ body mentions git push -f
 EOF
 git commit -m "x" && git push origin feat/x'
 
+# --- the walker must never think it is in data where bash is in code ---------------------------
+run "arithmetic shift is not a heredoc"      2 'echo $((1<<2))
+git push --force origin main'
+run "arithmetic command shift"               2 '((x<<2))
+git push --force origin main'
+run "arithmetic shift inside double quotes"  2 'echo "$((1<<2))"
+git push --force origin main'
+run "legacy \$[ ] arithmetic shift"          2 'echo $[1<<2]
+git push --force origin main'
+run "comment right after a paren"            2 '( : )#c <<EOF
+git push --force origin main'
+# shellcheck disable=SC1003  # the \' is part of the command under test, not an escape in this file
+run "ANSI-C quote with an escaped quote"     2 'git commit -m $'"'"'a\'"'"'b'"'"'
+git push --force origin main'
+run "ANSI-C message mentioning a flag"       0 'git commit -m $'"'"'docs: x\nnever git push -f'"'"''
+run "invalid UTF-8 byte before a push"       2 "$(printf 'cat \377\377 x\ngit push --force origin main')"
+BIG=$(head -c 300000 /dev/zero | tr '\0' 'a')
+run "oversized command fails closed"         2 "git commit -m $BIG"
+
 # --- chained commands: every segment is classified on its own ---------------------------------
 run "commit then force-push"                 2 'git commit -m "ok" && git push -f origin feat/x'
 run "commit; force-push"                     2 'git commit -m "ok"; git push --force origin feat/x'

@@ -6,6 +6,7 @@
 # accepted limits: variable indirection (`p=push; git $p -f`), git aliases defined in an earlier
 # call, `git config core.hooksPath` set in an earlier call, flags fed through a pipe (`xargs`),
 # and flags spelled with quoting tricks (`--no-veri"fy"`, `$'--no-verify'`, unique-prefix `--no-veri`).
+export LC_ALL=C   # byte-oriented grep/awk/tr: an invalid UTF-8 byte must not make a tool drop the rest of the input
 INPUT=$(cat)
 
 # Fast path: this guard only concerns `git commit` / `git push`. If the payload mentions
@@ -28,6 +29,12 @@ if [ -z "$CMD" ]; then
   exit 2
 fi
 
+# No agent-realistic command is this long; past this size the strip below gets slow, so stop here.
+if [ ${#CMD} -gt 262144 ]; then
+  echo "Blocked: guard-commit.sh will not inspect a git commit/push command over 256 KB. Split it up." >&2
+  exit 2
+fi
+
 # Join backslash-newline continuations so a flag on its own line stays with its subcommand.
 CMD=${CMD//\\$'\n'/ }
 
@@ -35,12 +42,14 @@ CMD=${CMD//\\$'\n'/ }
 # AND a force-push, and each segment is judged on its own. Data is stripped first so a commit
 # MESSAGE or a file body that merely mentions `push --force` or `--no-verify` (or contains `;`)
 # can't trip a flag check or split a segment. One quote model does all of it, a character walk
-# that keeps its state across lines: single- and double-quoted spans (with \ escapes), `$(...)`
-# and backtick substitutions that reopen code inside double quotes, `#` comments, and heredoc
-# bodies (`cat > f <<'EOF' ... EOF`, `git commit -F - <<EOF ...`), which are data bash never
-# runs. A `<<WORD` marker counts only in code, never inside a string or a comment: honoring one
-# inside a string would let a real command hide behind a fake terminator line. Every divergence
-# from bash is meant to err toward stripping LESS (a false block at worst), never more.
+# that keeps its state across lines: single-, double-, and ANSI-C ($'...') quoted spans (with
+# \ escapes), `$(...)` and backtick substitutions that reopen code inside double quotes,
+# `$((...))` / `((...))` arithmetic (where `<<` is a shift, not a heredoc), `#` comments, and
+# heredoc bodies (`cat > f <<'EOF' ... EOF`, `git commit -F - <<EOF ...`), which are data bash
+# never runs. A `<<WORD` marker counts only in code, never inside a string, a comment, or
+# arithmetic: honoring one there would let a real command hide behind a fake terminator line.
+# Every divergence from bash is meant to err toward stripping LESS (a false block at worst),
+# never more. If the walk itself fails, the hook fails closed (pipefail below).
 strip_data() {
   awk '
   BEGIN { q = 0; depth = 0; npend = 0; body = 0 }
@@ -63,25 +72,34 @@ strip_data() {
     while (i <= n) {
       ch = c[i]
       if (q == 1) { if (ch == "\047") q = 0; i++; continue }              # inside single quotes
+      if (q == 3) { if (ch == "\\") { i += 2; continue } if (ch == "\047") q = 0; i++; continue }   # inside $'...'
       if (q == 2) {                                                        # inside double quotes
         if (ch == "\\") { i += 2; continue }
         if (ch == "\"") { q = 0; i++; continue }
+        if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { kind[++depth] = "(("; save[depth] = 2; q = 0; o = o " "; i += 3; continue }
         if (ch == "$" && c[i + 1] == "(") { kind[++depth] = "("; save[depth] = 2; q = 0; o = o " "; i += 2; continue }
         if (ch == "`") { kind[++depth] = "`"; save[depth] = 2; q = 0; o = o " "; i++; continue }
         i++; continue
       }
+      arith = (depth > 0 && (kind[depth] == "((" || kind[depth] == "["))
       if (ch == "\\") { o = o ch c[i + 1]; i += 2; continue }              # code from here on
+      if (ch == "$" && c[i + 1] == "\047") { q = 3; i += 2; continue }
       if (ch == "\047") { q = 1; i++; continue }
       if (ch == "\"") { q = 2; i++; continue }
-      if (ch == "#" && (i == 1 || c[i - 1] ~ /[ \t;&|(]/)) break         # comment to end of line
+      if (ch == "#" && (i == 1 || c[i - 1] ~ /[ \t;&|()`]/)) break        # comment to end of line
+      if (ch == "$" && c[i + 1] == "(" && c[i + 2] == "(") { kind[++depth] = "(("; save[depth] = 0; o = o " "; i += 3; continue }
+      if (ch == "$" && c[i + 1] == "[") { kind[++depth] = "["; save[depth] = 0; o = o " "; i += 2; continue }
       if (ch == "$" && c[i + 1] == "(") { kind[++depth] = "("; save[depth] = 0; o = o "$("; i += 2; continue }
+      if (ch == "(" && c[i + 1] == "(" && !arith) { kind[++depth] = "(("; save[depth] = 0; o = o " "; i += 2; continue }
       if (ch == "(") { kind[++depth] = "("; save[depth] = 0; o = o ch; i++; continue }
+      if (ch == ")" && c[i + 1] == ")" && depth > 0 && kind[depth] == "((") { q = save[depth--]; o = o " "; i += 2; continue }
+      if (ch == "]" && depth > 0 && kind[depth] == "[") { q = save[depth--]; o = o " "; i++; continue }
       if (ch == ")" && depth > 0 && kind[depth] == "(") { q = save[depth--]; o = o ch; i++; continue }
       if (ch == "`") {
         if (depth > 0 && kind[depth] == "`") q = save[depth--]; else { kind[++depth] = "`"; save[depth] = 0 }
         o = o " "; i++; continue
       }
-      if (ch == "<" && c[i + 1] == "<" && c[i + 2] != "<" && (i == 1 || c[i - 1] != "<")) {
+      if (ch == "<" && c[i + 1] == "<" && c[i + 2] != "<" && (i == 1 || c[i - 1] != "<") && !arith) {
         j = i + 2; dash = 0
         if (c[j] == "-") { dash = 1; j++ }
         while (c[j] == " " || c[j] == "\t") j++
@@ -97,7 +115,10 @@ strip_data() {
     if (npend > 0) body = 1
   }'
 }
-STRIPPED=$(printf '%s' "$CMD" | strip_data)
+if ! STRIPPED=$(set -o pipefail; printf '%s' "$CMD" | strip_data); then
+  echo "Blocked: guard-commit.sh could not parse the command (awk failed). Failing closed." >&2
+  exit 2
+fi
 
 # A shell wrapper runs its quoted argument as a command, which the strip above just hid.
 # Refuse rather than guess: the unwrapped form is always available to the agent.
