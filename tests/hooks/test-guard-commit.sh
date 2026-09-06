@@ -547,6 +547,10 @@ run "env -i -S"                              2 'env -i -S "bash -c '"'"'git push
 run "env -u X -S"                            2 'env -u X -S "bash -c '"'"'git push --force origin main'"'"'"'
 run "env FOO=1 -S"                           2 'env FOO=1 -S "bash -c '"'"'git push --force origin main'"'"'"'
 run "env --split-string"                     2 'env --split-string="bash -c '"'"'git push --force origin main'"'"'"'
+run "env -C dir -S"                          2 'env -C /tmp -S "bash -c '"'"'git push --force origin main'"'"'"'
+run "ksh93 -c wrapper"                       2 'ksh93 -c "git push --force origin main"'
+run "bash5 -c wrapper"                       2 'bash5 -c "git push --force origin main"'
+run_raw "control byte in the command is refused" 2 '{"tool_input":{"command":"git commit -m x'"$BS"'u0001 --no-verify"}}'
 run "env with an assignment then a signed commit" 0 'env GIT_EDITOR=true git commit -S -m x'
 run "shebang write then commit is allowed"   0 'echo '"'"'#!/bin/bash'"'"' > run.sh && git add run.sh && git commit -m x'
 run "SHELL assignment then commit is allowed" 0 'export SHELL=/bin/zsh && git commit -m x'
@@ -650,6 +654,18 @@ run "dirty tracked secret, 2>&1 then --all"  2 'git commit -m x 2>&1 --all'
 run "dirty tracked secret, escaped ; then -a" 2 'git commit -m x\;y -a'
 run "dirty tracked secret, extension-less pathspec" 2 'git commit -m "x" tracked'
 run "dirty tracked secret, -m value is not a pathspec" 0 'git commit -m fix'
+run "dirty tracked secret, two-word message then pathspec" 2 'git commit -m "fix: two words" tracked.txt'
+run "dirty tracked secret, multi-line message then pathspec" 2 'git commit -m "$(cat <<'"'"'EOF'"'"'
+fix: x
+
+body
+EOF
+)" tracked.txt'
+run "dirty tracked secret, -S then pathspec" 2 'git commit -S tracked.txt -m x'
+run "dirty tracked secret, --gpg-sign then pathspec" 2 'git commit --gpg-sign tracked.txt -m x'
+run "dirty tracked secret, -m -F then pathspec" 2 'git commit -m -F tracked.txt'
+run "dirty tracked secret, plain commit with 2>&1" 0 'git commit -m x 2>&1'
+run "dirty tracked secret, plain commit to /dev/null" 0 'git commit -m x >/dev/null 2>&1'
 run "dirty tracked secret, add && commit"    2 'git add tracked.txt && git commit -m "x"'
 git checkout -q -- tracked.txt
 

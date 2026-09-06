@@ -33,6 +33,7 @@
 # treats an exit status over 1 as a tool failure that blocks.
 export LC_ALL=C   # byte-oriented grep/awk/tr: an invalid UTF-8 byte must not make a tool drop the rest of the input
 set -o pipefail   # a failing tool anywhere in a pipeline must surface, never read as "no match"
+set -f            # no pathname expansion anywhere: the hook never globs, and an unquoted token must stay a token
 INPUT=$(cat) || { echo "Blocked: guard-commit.sh could not read its stdin. Failing closed." >&2; exit 2; }
 
 # has <ERE> <text> (case-insensitive) / hasc (case-sensitive): grep that treats any status over 1
@@ -133,13 +134,17 @@ strip_data() {
     if (q == 2) qbad = 1                         # the enclosing string held a substitution: never glue it
   }
   function refuse(why) { refused = 1; print "guard-commit.sh cannot classify this command: " why ". Rewrite it without that construct." > "/dev/stderr"; exit 3 }
-  function closeq() { if (!qbad && qb != "" && qb !~ /[ \t;&|]/) o = o qb }   # a short quoted fragment is part of its word
+  # a short quoted fragment is part of its word; a dropped span leaves an empty "" so the
+  # argument still counts as one (`-m "two words" file` keeps `file` as the pathspec it is);
+  # an empty pair (`commi""t`) is nothing, as in bash
+  function closeq() { if (!qbad && qb != "" && qb !~ /[ \t;&|]/) o = o qb; else if (qbad || qb != "") o = o "\"\"" }
   function droptests() { while (depth > 0 && kind[depth] == "[") depth-- }   # a test bracket cannot span a command
   function insubst(   k) { for (k = depth; k > 0; k--) if (kind[k] == "$(" || kind[k] == "`" || kind[k] == "<(") return 1; return 0 }
   function inframe(   k) { for (k = depth; k > 0; k--) if (kind[k] != "(") return 1; return 0 }   # anything but a bare subshell
   BEGIN { q = 0; depth = 0; npend = 0; body = 0; cont = 0; casec[0] = 0; poppos = -1; poppedkind = ""; cmdpos = 1; kwlead = 0 }
   {
     line = $0
+    if (index(line, "\001")) refuse("a control byte in the command")   # \001 is the walk'"'"'s own boundary mark
     if (body) {
       t = line
       if (pdash[1]) sub(/^\t+/, "", t)
@@ -314,9 +319,9 @@ fi
 # `eval` and `trap` run text by definition; `source`/`.` of a process substitution reads text;
 # `env -S` splits a string into a command. Refuse rather than guess: the unwrapped form, in its
 # own call, is always available to the agent.
-SHW='(^|[[:space:]()])([^[:space:]#!=]*/)?(ba|z|da|k|c|tc|fi|a|mk|ya)?sh'   # a shell, by name or path; `#!/bin/bash` and `x=/bin/sh` are not commands
+SHW='(^|[[:space:]()])([^[:space:]#!=]*/)?(ba|z|da|k|c|tc|fi|a|mk|ya)?sh[0-9]*'   # a shell, by name or path (`ksh93`, `bash5` too); `#!/bin/bash` and `x=/bin/sh` are not commands
 RD='([[:space:]]*[0-9]*[<>]+[[:space:]]*[^[:space:]<>]*)*'                          # redirection words are not arguments
-ENVOPT='([[:space:]]+(-[A-Za-z]*|-u[[:space:]]+[^[:space:]]+|--[A-Za-z-]+(=[^[:space:]]*)?|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*))*'
+ENVOPT='([[:space:]]+(-[uCPa][[:space:]]+[^[:space:]]+|--(unset|chdir|argv0)[[:space:]]+[^[:space:]]+|-[A-Za-z]*|--[A-Za-z-]+(=[^[:space:]]*)?|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*))*'
 # every alternative supplies its own right boundary, so `shasum`, `shellcheck`, `bashful` never match
 WRAPPER="${SHW}${RD}[[:space:]]*[)}]*[[:space:]]*\$|${SHW}${RD}[[:space:]]+-|${SHW}[[:space:]]*[0-9]*<|${SHW}[[:space:]].*<|(^|[[:space:]()])(eval|trap)([[:space:]]|\$)|(^|[[:space:]()])(source|\.)[[:space:]].*<|(^|[[:space:]()])env${ENVOPT}[[:space:]]+(-[A-Za-z]*S|--split-string)"
 
@@ -340,16 +345,18 @@ while IFS= read -r SEG; do
   # message-like option, commits working-tree content, not just the index: scan it
   if [ -n "$SEG_COMMIT" ]; then
     if has '[[:space:]]commit.*[[:space:]](-[A-Za-z]*[aio][A-Za-z]*|--all|--include|--only)([^[:alnum:]]|$)' "$SEG"; then HAS_WORKTREE=1; fi
-    PREV=""; SEEN=""
-    for T in $SEG; do   # (unquoted on purpose: the walker already removed every quote)
+    SEEN=""; WANT=""
+    for T in $SEG; do   # (unquoted on purpose: the walker removed every quote and set -f is on)
       if [ -n "$SEEN" ]; then
+        if [ -n "$WANT" ]; then WANT=""; continue; fi   # the value of the previous option, whatever its shape
         case "$T" in
-          -*) ;;
-          *) case "$PREV" in -m|-F|-C|-c|-S|-t|--message|--file|--author|--date|--trailer|--template|--fixup|--squash|--reedit-message|--reuse-message|--cleanup|--gpg-sign) ;; *) HAS_WORKTREE=1 ;; esac ;;
+          -m|-F|-C|-c|-t|--message|--file|--author|--date|--trailer|--template|--fixup|--squash|--reedit-message|--reuse-message|--cleanup) WANT=1 ;;
+          *[\<\>]) WANT=1 ;;                          # `2>` from `2>&1`: the next token is its target, not a pathspec
+          -*|*[\<\>]*) ;;
+          *) HAS_WORKTREE=1 ;;
         esac
       fi
       [ "$T" = commit ] && SEEN=1
-      PREV=$T
     done
   fi
   [ -n "$SEG_COMMIT" ] && IS_COMMIT=1
