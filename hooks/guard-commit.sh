@@ -534,7 +534,7 @@ fi
 # which the literal check cannot read. On the stripped text the value keeps a `$`/backtick mark; a
 # quoted message is dropped there, so a prose mention is exempt.
 # shellcheck disable=SC2016  # $ and ` are literal regex chars
-if hasc "${CFG_ID}[^[:space:]$\`]*[[:space:]]*[$\`]" "$STRIPPED"; then
+if has "${CFG_ID}[^[:space:]$\`]*[[:space:]]*[$\`]" "$STRIPPED"; then
   echo "Blocked: a same-call 'git config user.name/email' whose value is built from a shell expansion cannot be inspected (CLAUDE.md §2). Set it to a literal human name, in its own call." >&2; exit 2
 fi
 

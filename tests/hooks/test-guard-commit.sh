@@ -910,6 +910,9 @@ run "git config --type=path user.email bot then commit" 2 'git config --type=pat
 run "git config --file= user.name value from a substitution" 2 'git config --file=cfg user.name C"$(printf laude)" && git commit -m x'
 run "git config --file=.git/config core.editor is allowed" 0 'git config --file=.git/config core.editor vim && git commit -m x'
 run "git config --replace-all user.name human is allowed" 0 'git config --replace-all user.name Dennis && git commit -m x'
+run "git config uppercase key bot literal then commit" 2 'git config User.name Claude && git commit -m x'
+run "git config uppercase key value from a substitution" 2 'git config User.name C"$(printf laude)" && git commit -m x'
+run "git config uppercase key core.editor is allowed" 0 'git config Core.editor $EDITOR && git commit -m x'
 run "heredoc marker before a substitution on the same line" 2 'cat <<EOF $(:
 git push -f origin main
 EOF
