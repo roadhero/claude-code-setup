@@ -6,7 +6,10 @@
 # Needs jq and git 2.28+ (for --no-relative and --output-indicator-new on the diff it reads).
 #
 # This is a backstop behind the settings.json deny rules and plan mode, not a sandbox. Known,
-# accepted limits: variable indirection (`p=push; git $p -f`), git aliases defined in an earlier
+# accepted limits: variable indirection (`p=push; git $p -f`, or a `${x/pat/--force}` replacement,
+# both of which need the variable set to a controlled value first), a committer or author name split
+# across concatenated quoted spans (`--author="$x""Claude"`; the enforced committer from repo config
+# is still checked), git aliases defined in an earlier
 # call, `git config core.hooksPath` set in an earlier call, flags fed through a pipe (`xargs`),
 # unique-prefix long options (`--no-veri`), a word or flag spliced by any expansion or substitution
 # (`git pu${x}sh`, `git pu$(echo s)h`, `--for$(echo c)e`), and the committer and secrets
@@ -22,15 +25,14 @@
 # in the same call as a commit or push (`git config alias.st status; git commit`, `git commit -m x
 # alias.md`), a substitution inside `${...}` (`${v:-$(git describe)}`), a one-word quoted argument
 # that spells a flag or subcommand (`-m "--no-verify"`, `-m "eval"`, `tag -m "push" -f`), a quoted
-# identity inside a message (`-m "set user.name='claude'"`), a committer/author name split
-# across concatenated quoted spans (`--author="$x""Claude"`; the enforced committer from repo
-# config is still checked), a `-n` or `-f` on another
+# identity inside a message (`-m "set user.name='claude'"`), a `-n` or `-f` on another
 # command inside the same `$(...)` as a commit or push (`-m "$(git log -1 | head -n 1)"`),
 # `--force-if-includes` on its own, `-S<keyid>` with an
 # `n` in the key id, an unquoted `*`, `?`, `[`, or `{a,b}` in a commit or push (bash expands it
 # when the command runs; quote it, or list the files), an expansion between a shell and its
-# option (`bash $a -c`: bash may see nothing there), a `${x:-default}` in a commit or push whose
-# default value is itself a flag (`${x:---force}`; refused, since it may expand to that flag), git config passed through the environment in
+# option (`bash $a -c`: bash may see nothing there), a `${x}` in a commit or push whose default
+# or alternate value is itself a flag (`${x:---force}`, `${x:+--force}`; refused, since it may expand
+# to that flag), git config passed through the environment in
 # a commit or push call (`--config-env`, `GIT_CONFIG_*`, `include.path`, `HOME=`, `XDG_CONFIG_HOME=`),
 # a commit message mentioning `-c core.hooksPath` or an unquoted `include.path`/`HOME=`/`XDG_CONFIG_HOME=`, a diff over 16 MB (commit
 # large binaries separately, or via LFS), and an ANSI-C numeric escape (`$'\033[0m'`) in a call
@@ -394,8 +396,8 @@ fi
 # A ${param:-WORD} / ${param=WORD} default (or := ) whose value begins with a dash expands to that
 # flag when the parameter is unset — with no prior assignment, unlike variable indirection — and the
 # walk drops the interior, so it cannot see it. Refuse it (a normal default is a value, not a flag).
-if has '\$\{[A-Za-z0-9_#!]*:?[-=]-' "$CMD"; then
-  echo "Blocked: a \${parameter:-default} whose default value is a flag cannot be inspected (it may expand to that flag). Pass the flag directly, or set the variable first in its own call." >&2; exit 2
+if has '\$\{[A-Za-z0-9_!#]*(\[[^]]*\])?:?[-=+][[:space:]]*-' "$CMD"; then
+  echo "Blocked: a \${parameter} whose default or alternate value is a flag cannot be inspected (it may expand to that flag). Pass the flag directly, or set the variable first in its own call." >&2; exit 2
 fi
 
 IS_COMMIT=""; HAS_PUSH=""; HAS_ADD=""; HAS_WORKTREE=""

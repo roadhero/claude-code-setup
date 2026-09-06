@@ -843,6 +843,15 @@ run "\${BRANCH:-main} default is allowed"    0 'git push origin "${BRANCH:-main}
 run "\${x:-HEAD} default is allowed"         0 'git push origin ${x:-HEAD}'
 run "\${#files} length is allowed"           0 'git commit -m "count ${#files}"'
 run "\${x//a/b} replacement is allowed"      0 'git commit -m "${x//a/b}"'
+run "\${HOME:+--force} alternate is a flag"   2 'git push origin "${HOME:+--force}"'
+run "\${x:+-n} alternate is a flag"          2 'git commit -m ok "${x:+-n}"'
+run "\${x+--force} bare alternate is a flag" 2 'git push origin ${x+--force}'
+run "\${x:- space then flag} default is a flag" 2 'git push origin ${x:- --force}'
+run "\${a[0]:---force} subscript default is a flag" 2 'git push origin "${a[0]:---force}"'
+run "\${x:+value} alternate value is allowed" 0 'git commit -m "${x:+ready}"'
+run "\${x/a/b} replacement is allowed (indirection limit)" 0 'git commit -m "${x/a/b}"'
+run "\${x//-/_} dash-strip replacement is allowed" 0 'git commit -m "${x//-/_}"'
+run "\${x:-a-b} hyphenated default value is allowed" 0 'git commit -m "${x:-a-b}"'
 run "heredoc marker before a substitution on the same line" 2 'cat <<EOF $(:
 git push -f origin main
 EOF
