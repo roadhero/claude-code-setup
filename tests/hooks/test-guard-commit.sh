@@ -42,6 +42,17 @@ run_raw() {
   record "$1" "$2" $? "$3"
 }
 
+# run_err <name> <expected-exit> <stderr must contain> <command>: also asserts exactly one "cannot classify" line
+run_err() {
+  printf '%s' "$4" | jq -Rs '{tool_input:{command:.}}' | bash "$HOOK" >"$TMP/out" 2>"$TMP/err"
+  rc=$?
+  if grep -qF -- "$3" "$TMP/err" && [ "$(grep -c 'cannot classify' "$TMP/err")" -eq 1 ] && [ ! -s "$TMP/out" ]; then
+    record "$1" "$2" "$rc" "$4"
+  else
+    FAIL=$((FAIL + 1)); echo "FAIL: $1 (stderr lacks '$3', or not exactly one reason line, or stdout not empty): $4"; sed 's/^/      stderr: /' "$TMP/err"
+  fi
+}
+
 # A throwaway repo with the given committer, one tracked file, and a clean tree.
 mkrepo() {
   d=$(mktemp -d "$TMP/repo.XXXXXX")
@@ -351,7 +362,48 @@ run "git split by empty quotes"              2 'gi'"'"''"'"'t push -f origin mai
 run "git split by a backslash"               2 'gi\t push -f origin main'
 run "git split, --no-verify"                 2 'g"it" commit --no-verify -m x'
 run "git as an ANSI-C hex string"            2 '$'"'"'\x67it'"'"' push -f origin main'
-run "refusal names the construct"            2 'git commit -m x; echo $'"'"'\033[0m'"'"''
+run_err "refusal names the construct" 2 "numeric escape" 'git commit -m x; echo $'"'"'\033[0m'"'"''
+run_err "refusal names an open quote"  2 "left open" 'x=$(echo hi
+git push -f origin main'
+
+# --- a newline is a command boundary only at the top level in code ------------------------------
+run "newline inside a quoted push argument"  2 'git push "multi
+line" --force origin main'
+run "newline inside a quoted commit message" 2 'git commit -m "line one
+line two" --no-verify'
+run "heredoc message then --no-verify"       2 'git commit -m "$(cat <<EOF
+feat: x
+
+body
+EOF
+)" --no-verify'
+run "newline inside a -c value"              2 'git -c "a
+b" commit --no-verify -m x'
+run "backslash-newline inside double quotes" 2 'git push "x\
+y" --force origin main'
+run "heredoc message then a plain push"      0 'git commit -m "$(cat <<'"'"'EOF'"'"'
+feat: x
+
+body
+EOF
+)"
+git push origin feat/x'
+run "# on a continuation line is not a comment" 2 'git commit -m x\
+#; git push -f origin main'
+run "# on a continuation after echo"         2 'echo a\
+#; git push --force origin main'
+run_raw "JSON unicode escape in the subcommand" 2 '{"tool_input":{"command":"git push --force origin main"}}'
+run_raw "JSON unicode escape in git"         2 '{"tool_input":{"command":"git push --force origin main"}}'
+run_raw "pretty-printed payload"             2 '{
+  "tool_input": {
+    "command": "git push --force origin main"
+  }
+}'
+# shellcheck disable=SC1003  # the \' is part of the command under test
+run "ANSI-C with an escaped quote before a hex escape" 2 'git $'"'"'a\'"'"'\x70ush'"'"' --force origin main'
+run "coproc NAME case"                       2 'x="$(coproc nm case a in a) git push --force origin main;; esac)"'
+run "time -p case"                           2 'x="$( { time -p case a in a) git push --force origin main;; esac; } )"'
+run "hooksPath value with a space"           2 'git -c "core.hooksPath=/no such" commit -m x'
 DENSE=$(for _ in $(seq 1 600); do printf '  "key": "value",\n'; done)
 run "quote-dense non-git heredoc is fast"    0 "cat > package.json <<'EOF'
 {
@@ -425,8 +477,19 @@ printf 'aws_key=%s\n' "$AWS_KEY" >>tracked.txt
 run "dirty tracked secret, plain commit"     0 'git commit -m "x"'
 run "dirty tracked secret, commit -am"       2 'git commit -am "x"'
 run "dirty tracked secret, commit --all"     2 'git commit --all -m "x"'
+run "dirty tracked secret, -a then ;"        2 'git commit -m x -a;git push origin x'
+run "dirty tracked secret, pathspec commit"  2 'git commit -m "x" tracked.txt'
+run "dirty tracked secret, --include"        2 'git commit --include tracked.txt -m "x"'
 run "dirty tracked secret, add && commit"    2 'git add tracked.txt && git commit -m "x"'
 git checkout -q -- tracked.txt
+
+printf 'PASSWORD=%s\n' "$(printf 'B%.0s' $(seq 1 26))" >shout.txt
+run "untracked uppercase secret, add && commit" 2 'git add shout.txt && git commit -m "x"'
+rm shout.txt
+
+git config diff.algorithm bogus
+run "git diff failure fails closed"          2 'git commit -m "x"'
+git config --unset diff.algorithm
 
 printf 'aws_key=%s\n' "$AWS_KEY" >config.txt
 git add config.txt
@@ -517,7 +580,7 @@ run_without "$TMP/nowc" "no wc: commit fails closed"    2 'git commit --no-verif
 run_without "$TMP/notr" "no tr: unrelated command allowed" 0 'ls'
 
 # Every case in this file must have been counted: a case that ran in a subshell would be lost.
-EXPECTED=$(grep -cE '^(run|run_raw|run_nojq|run_noawk|run_without) ' "$SELF")
+EXPECTED=$(grep -cE '^(run|run_raw|run_err|run_nojq|run_noawk|run_without) ' "$SELF")
 if [ "$((PASS + FAIL))" -ne "$EXPECTED" ]; then
   echo "FAIL: $EXPECTED cases defined, $((PASS + FAIL)) counted"
   FAIL=$((FAIL + 1))
