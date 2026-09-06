@@ -34,27 +34,70 @@ CMD=${CMD//\\$'\n'/ }
 # Classify per command segment, not per Bash call: `git commit -m ok && git push -f` is a commit
 # AND a force-push, and each segment is judged on its own. Data is stripped first so a commit
 # MESSAGE or a file body that merely mentions `push --force` or `--no-verify` (or contains `;`)
-# can't trip a flag check or split a segment:
-#  - heredoc bodies (`cat > f <<'EOF' ... EOF`, `git commit -F - <<EOF ...`) are dropped line by
-#    line up to the terminator. A `<<WORD` marker counts only when it sits outside quotes on its
-#    line (an even number of unescaped " and ' before it): a `<<EOF` inside a string is text, and
-#    stripping past it would let a real command hide behind a fake terminator line;
-#  - quoted spans are dropped, multi-line aware (newlines are hidden as \001 during sed) so a
-#    `-m "$(cat <<'EOF' ... EOF)"` message is one span; escaped \" go first so they cannot flip parity.
-strip_heredocs() {
+# can't trip a flag check or split a segment. One quote model does all of it, a character walk
+# that keeps its state across lines: single- and double-quoted spans (with \ escapes), `$(...)`
+# and backtick substitutions that reopen code inside double quotes, `#` comments, and heredoc
+# bodies (`cat > f <<'EOF' ... EOF`, `git commit -F - <<EOF ...`), which are data bash never
+# runs. A `<<WORD` marker counts only in code, never inside a string or a comment: honoring one
+# inside a string would let a real command hide behind a fake terminator line. Every divergence
+# from bash is meant to err toward stripping LESS (a false block at worst), never more.
+strip_data() {
   awk '
-    skip { if ($0 ~ "^[ \t]*" word "$") skip = 0; next }
-    match($0, /<<-?[ \t]*[\047"]?[A-Za-z_][A-Za-z0-9_]*[\047"]?/) {
-      pre = substr($0, 1, RSTART - 1); gsub(/\\"/, "", pre)
-      if (gsub(/"/, "", pre) % 2 == 0 && gsub(/\047/, "", pre) % 2 == 0) {
-        word = substr($0, RSTART, RLENGTH); sub(/^<<-?[ \t]*/, "", word); gsub(/[\047"]/, "", word)
-        skip = 1
-      }
+  BEGIN { q = 0; depth = 0; npend = 0; body = 0 }
+  {
+    line = $0
+    if (body) {                                  # inside a heredoc body: drop lines up to the terminator
+      t = line
+      if (pdash[1]) sub(/^\t+/, "", t)
+      tail = ""
+      while (t ~ /\)$/) { t = substr(t, 1, length(t) - 1); tail = tail ")" }   # `EOF)` closes a $( too
+      if (t != pword[1]) next
+      for (k = 1; k < npend; k++) { pword[k] = pword[k + 1]; pdash[k] = pdash[k + 1] }
+      npend--
+      if (npend == 0) body = 0
+      line = tail
     }
-    { print }
-  '
+    n = split(line, c, "")
+    o = ""
+    i = 1
+    while (i <= n) {
+      ch = c[i]
+      if (q == 1) { if (ch == "\047") q = 0; i++; continue }              # inside single quotes
+      if (q == 2) {                                                        # inside double quotes
+        if (ch == "\\") { i += 2; continue }
+        if (ch == "\"") { q = 0; i++; continue }
+        if (ch == "$" && c[i + 1] == "(") { kind[++depth] = "("; save[depth] = 2; q = 0; o = o " "; i += 2; continue }
+        if (ch == "`") { kind[++depth] = "`"; save[depth] = 2; q = 0; o = o " "; i++; continue }
+        i++; continue
+      }
+      if (ch == "\\") { o = o ch c[i + 1]; i += 2; continue }              # code from here on
+      if (ch == "\047") { q = 1; i++; continue }
+      if (ch == "\"") { q = 2; i++; continue }
+      if (ch == "#" && (i == 1 || c[i - 1] ~ /[ \t;&|(]/)) break         # comment to end of line
+      if (ch == "$" && c[i + 1] == "(") { kind[++depth] = "("; save[depth] = 0; o = o "$("; i += 2; continue }
+      if (ch == "(") { kind[++depth] = "("; save[depth] = 0; o = o ch; i++; continue }
+      if (ch == ")" && depth > 0 && kind[depth] == "(") { q = save[depth--]; o = o ch; i++; continue }
+      if (ch == "`") {
+        if (depth > 0 && kind[depth] == "`") q = save[depth--]; else { kind[++depth] = "`"; save[depth] = 0 }
+        o = o " "; i++; continue
+      }
+      if (ch == "<" && c[i + 1] == "<" && c[i + 2] != "<" && (i == 1 || c[i - 1] != "<")) {
+        j = i + 2; dash = 0
+        if (c[j] == "-") { dash = 1; j++ }
+        while (c[j] == " " || c[j] == "\t") j++
+        w = ""
+        while (j <= n && c[j] !~ /[ \t;&|<>()]/) { w = w c[j]; j++ }
+        gsub(/[\047"\\]/, "", w)
+        if (w != "") { pword[++npend] = w; pdash[npend] = dash }
+        o = o "<<"; i = j; continue
+      }
+      o = o ch; i++
+    }
+    print o
+    if (npend > 0) body = 1
+  }'
 }
-STRIPPED=$(printf '%s' "$CMD" | strip_heredocs | tr '\n' '\001' | sed -e 's/\\"//g' -e 's/"[^"]*"//g' -e "s/'[^']*'//g" | tr '\001' '\n')
+STRIPPED=$(printf '%s' "$CMD" | strip_data)
 
 # A shell wrapper runs its quoted argument as a command, which the strip above just hid.
 # Refuse rather than guess: the unwrapped form is always available to the agent.

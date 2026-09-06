@@ -142,7 +142,44 @@ EOF'
 run "fake marker inside single quotes"       2 'git commit -m '"'"'a <<EOF
 b'"'"' && git push --force origin main
 EOF'
-run "here-string is not a heredoc"           2 'cat <<<"x" && git push -f origin main'
+run "here-string is not a heredoc"           2 'read -r a b <<<"hello world"
+git push -f origin main'
+run "marker on line 2 of a quoted message"   2 'git commit -m "$(cat <<'"'"'EOF'"'"'
+fix(hooks): strip heredoc bodies
+
+A <<WORD marker counts only when it sits outside quotes on its line.
+EOF
+)" && git push -f origin main'
+run "fake terminator after a quoted marker"  2 'git commit -m "docs: x
+see <<EOF
+b" && git push -f origin main
+EOF'
+run "EOF) terminator inside \$( ) then push" 2 'x=$(cat <<EOF
+body
+EOF)
+git push -f origin main'
+run "delimiter with dashes then push"        2 'cat > x.md <<'"'"'END-OF-FILE'"'"'
+body
+END-OF-FILE
+git push -f origin main'
+run "marker inside a comment"                2 '# see <<EOF
+git push -f origin main'
+run "double quote inside a heredoc message"  2 'git commit -m "$(cat <<'"'"'EOF'"'"'
+say "hi"
+EOF
+)" && git push -f origin main'
+run "backslash-quoted delimiter"             0 'cat > x.md <<\EOF
+never git push -f
+EOF'
+run "apostrophe in a quoted arg before a heredoc" 0 'echo "don'"'"'t" && cat > x.md <<EOF
+never git push -f
+EOF'
+run "unterminated heredoc: tail is body"     0 'cat <<EOF
+git push -f origin main'
+run "heredoc body then a chained plain push" 0 'cat > x.md <<EOF
+body mentions git push -f
+EOF
+git commit -m "x" && git push origin feat/x'
 
 # --- chained commands: every segment is classified on its own ---------------------------------
 run "commit then force-push"                 2 'git commit -m "ok" && git push -f origin feat/x'
