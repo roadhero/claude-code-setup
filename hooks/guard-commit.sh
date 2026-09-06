@@ -29,7 +29,7 @@
 # when the command runs; quote it, or list the files), an expansion between a shell and its
 # option (`bash $a -c`: bash may see nothing there), git config passed through the environment in
 # a commit or push call (`--config-env`, `GIT_CONFIG_*`, `include.path`, `HOME=`, `XDG_CONFIG_HOME=`),
-# a commit message mentioning `-c core.hooksPath` or an unquoted `include.path`/`HOME=`, a diff over 16 MB (commit
+# a commit message mentioning `-c core.hooksPath` or an unquoted `include.path`/`HOME=`/`XDG_CONFIG_HOME=`, a diff over 16 MB (commit
 # large binaries separately, or via LFS), and an ANSI-C numeric escape (`$'\033[0m'`) in a call
 # that also mentions git, commit, or push. A call whose every one of those words is itself
 # numerically encoded (`$'\x67it' $'\x70ush'`) is the splice limit above.
@@ -235,6 +235,11 @@ strip_data() {
         outer = !inbrace(); push("${", 0); o = o " $"; if (outer) bmark = length(o); i += 2; continue
       }
       if (ch == "$" && c[i + 1] == "(") { push("$(", 0); o = o "$( "; i += 2; continue }
+      # a bare `$name` / `$1` / `$@` parameter expansion may expand to nothing, so it is a word that,
+      # like `${...}`, must not glue the literal next to it (`git push origin $x--force`): emit a `$`
+      # mark set off by spaces so a flag or subcommand after it keeps its boundary.
+      if (ch == "$" && c[i + 1] ~ /[A-Za-z_]/) { i += 2; while (i <= n && c[i] ~ /[A-Za-z0-9_]/) i++; o = o " $ "; continue }
+      if (ch == "$" && c[i + 1] ~ /[0-9@*#?!$-]/) { o = o " $ "; i += 2; continue }
       # `[` in code opens a test bracket; inside an expansion or arithmetic it is an array subscript
       # (`${a[1|2]}`), whose `|` and `&` are text, never a command boundary
       if (ch == "[" && top == "${") { o = o ch; i++; continue }   # text inside `${...}`, like `)`: `${x:-[}` is a value, not a subscript

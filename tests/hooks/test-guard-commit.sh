@@ -809,6 +809,15 @@ run "empty quote glued before a bash wrapper" 2 '""bash -c "git push --force ori
 run "empty quote before commit, then chained force-push" 2 'git commit -m x && git ""push --force origin main'
 run "empty quote glued before a word is not a phantom" 0 'git ""status'
 run "standalone empty arg then a plain commit" 0 'echo "" && git commit -m x'
+run "bare \$x glued before the force flag"    2 'git push origin $x--force'
+run "bare \$x glued before -f"               2 'git push origin $x-f'
+run "bare \$x glued before --mirror"         2 'git push $x--mirror'
+run "bare \$x glued before --no-verify"      2 'git commit $x--no-verify -m x'
+run "bare \$x glued before -n"               2 'git commit -a $x-n -m x'
+run "bare \$x then empty quote before --force" 2 'git push origin $x""--force'
+run "bare \$x before a bash wrapper flag"    2 'bash $x-c "git push --force origin main"'
+run "bare \$x in a normal push is allowed"   0 'git push origin $branch'
+run "bare \$1 glued before --force"          2 'git push origin $1--force'
 run "heredoc marker before a substitution on the same line" 2 'cat <<EOF $(:
 git push -f origin main
 EOF
