@@ -3,6 +3,8 @@
 # around git, non-human committers, AI attribution, and staged secrets before they happen.
 # Exit 2 + a stderr reason is the documented blocking contract; stdout is unused.
 #
+# Needs jq and git 2.28+ (for --no-relative and --output-indicator-new on the diff it reads).
+#
 # This is a backstop behind the settings.json deny rules and plan mode, not a sandbox. Known,
 # accepted limits: variable indirection (`p=push; git $p -f`), git aliases defined in an earlier
 # call, `git config core.hooksPath` set in an earlier call, flags fed through a pipe (`xargs`),
@@ -15,7 +17,9 @@
 # (`python3 -c "os.system('git push -f')"`, `perl -e`, `node -e`, awk's `system()`), whose
 # program is data to this walk. Known false blocks (safe direction): a shell wrapper anywhere in
 # the same call as a plain commit or push (`git commit -m x && bash -c "echo done"`,
-# `bash build.sh -c release && git commit -m x`), a one-word quoted argument that spells a flag or
+# `bash -x build.sh && git commit -m x`), `source`/`.` of a process substitution, an alias
+# defined in the same call as a commit or push (`git config alias.st status; git commit`), a
+# one-word quoted argument that spells a flag or
 # subcommand (`-m "--no-verify"`, `-m "eval"`, `tag -m "push" -f`), a `-n` or `-f` on another
 # command inside the same `$(...)` as a commit or push (`-m "$(git log -1 | head -n 1)"`),
 # `--force-if-includes` on its own, `-S<keyid>` with an
@@ -199,7 +203,7 @@ strip_data() {
       if (ch == "$" && c[i + 1] == "{") { push("${", 0); o = o " "; i += 2; continue }
       if (ch == "$" && c[i + 1] == "(") { push("$(", 0); o = o "$("; i += 2; continue }
       if (ch == "[") { push("[", 0); o = o " "; i++; continue }
-      if ((ch == "<" || ch == ">") && c[i + 1] == "(") { push("<(", 0); o = o " "; i += 2; continue }   # process substitution: a word
+      if ((ch == "<" || ch == ">") && c[i + 1] == "(") { push("<(", 0); o = o ch " "; i += 2; continue }   # process substitution: a word
       if (ch == "(" && noheredoc && top != "${") { push("(a", 0); o = o " "; i++; continue }
       if (ch == "(" && c[i + 1] == "(") { push("((", 0); o = o " "; i += 2; continue }
       if (ch == "(") { push("(", 0); o = o ch; i++; continue }
@@ -283,14 +287,6 @@ if ! STRIPPED=$(strip_data <<<"$CMD"); then
   exit 2
 fi
 
-# A shell wrapper runs text as a command, and the strip above just hid that text: `sh -c "..."`
-# (any flag cluster containing c, any flags before it), a shell fed on stdin (`bash <<'EOF'`,
-# `bash <<<"..."`, `bash < f`, `... | sh`), `eval`, and `trap`. Refuse rather than guess: the
-# unwrapped form, in its own call, is always available to the agent.
-SH='(ba|z|da|k|c|tc|fi|a|mk|ya)?sh'
-if hasc "(^|[^[:alnum:]_.-])$SH([[:space:]]+[^;&|[:space:]]+)*[[:space:]]+-[a-z]*c[a-z]*([^[:alnum:]_./-]|\$)|(^|[^[:alnum:]_.-])$SH([[:space:]]+-[a-z]+)*[[:space:]]*<|\|[[:space:]]*$SH([[:space:]]+-[a-z]+)*([[:space:]]|\$)|(^|[^[:alnum:]_./-])(eval|trap)([^[:alnum:]_./-]|\$)" "$STRIPPED"; then
-  echo "Blocked: a shell wrapper (sh -c, bash <<EOF, ... | sh, eval, trap) in the same call as a git commit/push cannot be inspected. Run the git command directly, in its own call." >&2; exit 2
-fi
 
 # Each segment costs a few greps; thousands of `;`-separated segments could outlast the hook
 # timeout, and a timed-out PreToolUse hook does not block. No real command has hundreds.
@@ -303,9 +299,29 @@ if [ "$NSEP" -gt 500 ]; then
   exit 2
 fi
 
+# A shell wrapper runs text as a command, and the strip above just hid that text. The rule, per
+# segment of a call that commits or pushes: a shell (`sh`, `bash`, `zsh`, ... by name or path) is a
+# wrapper when it is given leading options (`bash -c`, `bash -x script`, `bash -s`), when anything
+# is redirected into it (`bash <<'EOF'`, `bash <<<"..."`, `bash < f`, `bash <(...)`), or when it has
+# no arguments at all (`... | bash`, `bash` after `exec <`). A shell given a script path and the
+# script's own arguments is not (`bash build.sh -c release`); the script body is a listed limit.
+# `eval` and `trap` run text by definition; `source`/`.` of a process substitution reads text;
+# `env -S` splits a string into a command. Refuse rather than guess: the unwrapped form, in its
+# own call, is always available to the agent.
+SHW='(^|[[:space:]])([^[:space:]]*/)?(ba|z|da|k|c|tc|fi|a|mk|ya)?sh'
+WRAPPER="${SHW}[[:space:]]*[)}]*[[:space:]]*\$|${SHW}[[:space:]]+-|${SHW}[[:space:]].*<|(^|[[:space:]])(eval|trap)([[:space:]]|\$)|(^|[[:space:]])(source|\.)[[:space:]].*<|(^|[[:space:]])env[[:space:]]+-[A-Za-z]*S"
+
+# An alias defined in the same call renames a subcommand out of reach of every check below.
+if has '(^|[^[:alnum:]_])alias\.' "$CMD"; then
+  echo "Blocked: a git alias defined in the same call as a commit/push cannot be inspected. Define it separately, or use the full subcommand." >&2; exit 2
+fi
+
 IS_COMMIT=""; HAS_PUSH=""; HAS_ADD=""; HAS_WORKTREE=""
 while IFS= read -r SEG; do
   [ -z "$SEG" ] && continue
+  if hasc "$WRAPPER" "$SEG"; then
+    echo "Blocked: a shell wrapper (sh -c, bash <<EOF, ... | sh, eval, trap) in the same call as a git commit/push cannot be inspected. Run the git command directly, in its own call." >&2; exit 2
+  fi
   SEG_COMMIT=""; SEG_PUSH=""
   has 'git.*[[:space:]]commit([^[:alnum:]]|$)' "$SEG" && SEG_COMMIT=1
   has 'git.*[[:space:]]push([^[:alnum:]]|$)' "$SEG" && SEG_PUSH=1

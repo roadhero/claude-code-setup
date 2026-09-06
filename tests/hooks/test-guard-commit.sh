@@ -392,8 +392,9 @@ run "# on a continuation line is not a comment" 2 'git commit -m x\
 #; git push -f origin main'
 run "# on a continuation after echo"         2 'echo a\
 #; git push --force origin main'
-run_raw "JSON unicode escape in the subcommand" 2 '{"tool_input":{"command":"git push --force origin main"}}'
-run_raw "JSON unicode escape in git"         2 '{"tool_input":{"command":"git push --force origin main"}}'
+BS="\\"   # a literal backslash, so the JSON below really contains backslash-u escapes
+run_raw "JSON unicode escape in the subcommand" 2 '{"tool_input":{"command":"git pu'"$BS"'u0073h --force origin main"}}'
+run_raw "JSON unicode escape in git"         2 '{"tool_input":{"command":"g'"$BS"'u0069t push --force origin main"}}'
 run_raw "pretty-printed payload"             2 '{
   "tool_input": {
     "command": "git push --force origin main"
@@ -460,8 +461,39 @@ EOF'
 run "bash fed by a file"                     2 'bash < run.sh; git push origin main'
 run "trap runs text at exit"                 2 'trap "git push --force origin main" EXIT; true'
 run "wrapper elsewhere in the call (documented false block)" 2 'git commit -m "x" && bash -c "echo done"'
-run "script taking -c (documented false block)" 2 'bash build.sh -c release && git commit -m x'
+run "shell with leading option before a script (documented false block)" 2 'bash -x build.sh && git commit -m x'
+run "script with its own -c argument is allowed" 0 'bash build.sh -c release && git commit -m x'
+run "script with its own --check is allowed"  0 'bash scripts/publish.sh --check && git commit -m x'
+run "sourcing a venv is allowed"             0 '. ./venv/bin/activate && git commit -m x'
 run "ssh -c cipher is not a wrapper"         0 'ssh -c aes256-ctr host git commit -m x'
+run "bash --norc fed by a heredoc"           2 'bash --norc <<'"'"'EOF'"'"'
+git push --force origin main
+EOF'
+run "bash -o pipefail fed by a heredoc"      2 'bash -o pipefail <<'"'"'EOF'"'"'
+git push --force origin main
+EOF'
+run "bash /dev/stdin fed by a heredoc"       2 'bash /dev/stdin <<'"'"'EOF'"'"'
+git push --force origin main
+EOF'
+run "bash 0<< fed by a heredoc"              2 'bash 0<<'"'"'EOF'"'"'
+git push --force origin main
+EOF'
+run "pipe into bash then ;"                  2 'echo "git push --force origin main" | bash; true'
+run "pipe into sh inside a subshell"         2 '(echo "git push --force origin main" | sh)'
+run "pipe into bash on the next line"        2 'printf "git push --force origin main" |
+bash'
+run "exec-redirected stdin then bare bash"   2 'exec <<'"'"'EOF'"'"'
+git push --force origin main
+EOF
+bash'
+run "bash fed by a process substitution"     2 'bash <(echo "git push --force origin main")'
+run "source of a process substitution"       2 'source <(echo "git push --force origin main")'
+run "env -S splits a string into a command"  2 'env -S "bash -c '"'"'git push --force origin main'"'"'"'
+run "alias defined with -c, same call"       2 'git -c alias.fp=push fp --force origin main'
+run "alias with the flag inside, same call"  2 'git -c alias.fp="push --force" fp origin main'
+run "alias via git config, same call"        2 'git config alias.fp "push --force"; git fp origin main'
+run "alias for a no-verify commit"           2 'git -c alias.nv="commit --no-verify" nv -m x'
+run "alias lookup next to a commit (documented false block)" 2 'git config --get alias.st; git commit -m x'
 
 # --- process substitution is a word of the enclosing command ------------------------------------
 run "pipe inside <( ) before --force-with-lease" 2 'git push origin main <(git log --oneline | head -5) --force-with-lease'
