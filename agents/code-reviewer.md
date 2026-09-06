@@ -59,7 +59,7 @@ Read the git diff. Walk it against the checklists below. Produce a structured re
 2. **Hardcodes.** Magic numbers, magic strings, magic URLs, magic IDs — should they be config / env / constant?
 3. **Error handling.** Missing handling for _realistic_ failure cases. Not hypothetical ones — real ones: network down, disk full, permission denied, dependency unavailable, malformed input from an untrusted source.
 4. **Security.**
-   - Unsanitized user input reaching SQL, shell, template, regex, deserializer.
+   - Unsanitized user input — including tool-call arguments and model output — reaching SQL, shell, template, regex, deserializer.
    - Output sanitization (XSS, log injection, command injection).
    - Authentication: every endpoint correctly authenticated.
    - Authorization: every operation scoped to the right principal, and the principal comes from the verified session / token — never from the request body, a query param, a tool-call argument, or model output.
