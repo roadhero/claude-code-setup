@@ -42,8 +42,8 @@ Threat-model the change set and audit the surfaces below. Produce a findings rep
 
 # Audit surfaces
 
-1. **AuthN/AuthZ.** Every new endpoint/handler authenticated? Every operation scoped to the right principal (no IDOR — object reference without an ownership check)? Privilege boundaries crossed?
-2. **Injection.** User input reaching SQL, shell, template, regex (ReDoS), LDAP, or a deserializer. Trace the taint from source to sink.
+1. **AuthN/AuthZ.** Every new endpoint/handler authenticated? Every operation scoped to the right principal (no IDOR — object reference without an ownership check)? Privilege boundaries crossed? The acting principal (user / org / role) comes from the verified session or token — never from the request body, a query param, a tool-call argument, or model output. A tool handler that accepts `userId` as a parameter is the agentic form of IDOR: one prompt injection and the model acts as any user.
+2. **Injection.** User input — including tool-call arguments and model output — reaching SQL, shell, template, regex (ReDoS), LDAP, or a deserializer. Trace the taint from source to sink.
 3. **Crypto.** Security-sensitive randomness uses a CSPRNG (`crypto.randomBytes` / `secrets.token_bytes` / `OsRng`), never `Math.random`/`random.random`. No MD5/SHA-1/DES/RC4/ECB for new code. Keys/IVs not reused or hardcoded.
 4. **Secrets.** Nothing logged, returned in errors, or placed in URLs/query strings. Matches CLAUDE.md §11. Run:
    ```bash
