@@ -27,7 +27,8 @@
 # `n` in the key id, an unquoted `*`, `?`, `[`, or `{a,b}` in a commit or push (bash expands it
 # when the command runs; quote it, or list the files), an expansion between a shell and its
 # option (`bash $a -c`: bash may see nothing there), git config passed through the environment in
-# a commit or push call (`--config-env`, `GIT_CONFIG_*`), a commit message mentioning `-c core.hooksPath`, a diff over 16 MB (commit
+# a commit or push call (`--config-env`, `GIT_CONFIG_*`, `include.path`, `HOME=`), a commit message
+# mentioning `-c core.hooksPath` or an unquoted `include.path`/`HOME=`, a diff over 16 MB (commit
 # large binaries separately, or via LFS), and an ANSI-C numeric escape (`$'\033[0m'`) in a call
 # that also mentions git, commit, or push. A call whose every one of those words is itself
 # numerically encoded (`$'\x67it' $'\x70ush'`) is the splice limit above.
@@ -146,11 +147,13 @@ strip_data() {
   # argument still counts as one (`-m "two words" file` keeps `file` as the pathspec it is),
   # unless it held a substitution, whose own mark already stands there; an empty pair
   # (`commi""t`) is nothing, as in bash
-  function closeq() { if (!qbad && qb != "" && qb !~ /[ \t;&|*?\[{()<>]/) o = o qb; else if (!qbad && qb != "") o = o "\"\"" }
+  function closeq() { if (!qbad && qb != "" && qb !~ /[ \t;&|*?\[{()<>`]/) o = o qb; else if (!qbad && (qb != "" || qfresh)) o = o "\"\"" }
   function droptests() { while (depth > 0 && kind[depth] == "[") depth-- }   # a test bracket cannot span a command
   function insubst(   k) { for (k = depth; k > 0; k--) if (kind[k] == "$(" || kind[k] == "`" || kind[k] == "<(") return 1; return 0 }
   function inframe(   k) { for (k = depth; k > 0; k--) if (kind[k] != "(") return 1; return 0 }   # anything but a bare subshell
   function inbrace(   k) { for (k = depth; k > 0; k--) if (kind[k] == "${") return 1; return 0 }   # inside a `${...}` word
+  function fresh() { return (o == "" || o ~ /[ \t]$/ || substr(o, length(o), 1) == "\001") }   # a quote at the start of a word
+  function heredocbeforesubst(   k) { for (k = depth; k > 0; k--) if ((kind[k] == "$(" || kind[k] == "`" || kind[k] == "<(") && pendat[k] > 0) return 1; return 0 }
   BEGIN { q = 0; depth = 0; npend = 0; body = 0; cont = 0; casec[0] = 0; poppos = -1; poppedkind = ""; cmdpos = 1; kwlead = 0 }
   {
     line = $0
@@ -205,9 +208,9 @@ strip_data() {
         if (i == n) { cont = 1; i++; continue }
         o = o ((c[i + 1] ~ /[;&|]/) ? " " : (c[i + 1] ~ /[*?\[{]/) ? "\"\"" : c[i + 1]); i += 2; continue
       }
-      if (ch == "$" && c[i + 1] == "\047") { q = 3; qb = ""; qbad = 0; i += 2; continue }
-      if (ch == "\047") { q = 1; qb = ""; qbad = 0; i++; continue }
-      if (ch == "\"") { q = 2; qb = ""; qbad = 0; i++; continue }
+      if (ch == "$" && c[i + 1] == "\047") { q = 3; qb = ""; qbad = 0; qfresh = fresh(); i += 2; continue }
+      if (ch == "\047") { q = 1; qb = ""; qbad = 0; qfresh = fresh(); i++; continue }
+      if (ch == "\"") { q = 2; qb = ""; qbad = 0; qfresh = fresh(); i++; continue }
       # a comment starts only where a word starts: after whitespace, a control operator, or the `)`
       # that ends a subshell or an `((...))` command. The `)` of `$(...)` / `$((...))` or a closing
       # backtick ends a word, and `#` after it is part of that word.
@@ -309,8 +312,10 @@ strip_data() {
     if (q == 1 || q == 2 || q == 3) qbad = 1    # a quoted span crossing a line is never glued
     if (q == 0 && !cont) droptests()
     # a body starts at the newline that ends the COMMAND (code state, no continuation), as in bash;
-    # a `${...}` still open means the command has not ended, and the walk will not guess where it does
+    # a `${...}` still open, or a `<<WORD` registered before a substitution opened on the line, means
+    # the command has not ended where the walk would start the body: it will not guess, it refuses
     if (!body && npend > 0 && inbrace()) refuse("a heredoc marker on a line that ends inside ${...}")
+    if (!body && npend > 0 && heredocbeforesubst()) refuse("a heredoc marker before a substitution that opens on the same line")
     enter = (!body && npend > 0 && q == 0 && !cont)
     # A newline separates commands in code at the top level or inside a bare subshell. Inside any
     # other frame it does not end the ENCLOSING command: in `$(...)` it separates commands of the
@@ -392,12 +397,15 @@ while IFS= read -r SEG; do
     for T in $SEG; do   # (unquoted on purpose: the walker removed every quote and set -f is on)
       if [ -n "$SEEN" ]; then
         # the words of a `$(...)` or `...` are the substitution's, never pathspecs (`-m "$(cat <<EOF ...)"`):
-        # backticks toggle on an odd count per token; `$(` and `)` are counted while no backtick is open
+        # the words of the substitution are never pathspecs. A backtick opens/closes a span and glues
+        # to its word, so count it by parity; a quoted backtick is already dropped by closeq, so the
+        # only backticks here are real marks. `$(` is emitted standalone, so match it exactly (a
+        # literal `x$(y` must NOT count); its `)` glues to a word, so match that by containment.
         case "$T" in *'`'*) B=${T//[!\`]/}; [ $((${#B} % 2)) -eq 1 ] && BT=$((1 - BT)); WANT=""; continue ;; esac
         [ "$BT" -eq 1 ] && continue
-        # shellcheck disable=SC2016  # `$(` is a literal pattern
-        case "$T" in *'$('*) SUB=$((SUB + 1)); WANT=""; continue ;; esac
-        if [ "$SUB" -gt 0 ]; then case "$T" in *')'*) SUB=$((SUB - 1)) ;; esac; continue; fi
+        # shellcheck disable=SC2016  # `$(` is a literal mark
+        case "$T" in '$(') SUB=$((SUB + 1)); WANT=""; continue ;; esac
+        if [ "$SUB" -gt 0 ]; then case "$T" in *')'*) SUB=$((SUB - 1)) ;; esac; continue; fi   # `)` glues to its word (`date)`)
         if [ -n "$WANT" ]; then WANT=""; continue; fi   # the value of the previous option, whatever its shape
         case "$T" in
           *[\<\>]*)                                  # a redirection glued to a word (`tracked.txt>log`, `2>`): the word stays an argument
@@ -442,8 +450,8 @@ done <<<"$SEGMENTS"
 
 # git can take config from the environment (`--config-env`, `GIT_CONFIG_COUNT`/`KEY_n`/`VALUE_n`,
 # `GIT_CONFIG_PARAMETERS`), where the key or the value is out of every check's sight: refuse.
-if has '--config-env|GIT_CONFIG_(COUNT|KEY_[0-9]+|VALUE_[0-9]+|PARAMETERS)=' "$STRIPPED"; then
-  echo "Blocked: git config passed through the environment (--config-env, GIT_CONFIG_*) in the same call as a commit/push cannot be inspected. Set it with -c or in the repo config." >&2; exit 2
+if has '--config-env|GIT_CONFIG_(COUNT|KEY_[0-9]+|VALUE_[0-9]+|PARAMETERS|GLOBAL|SYSTEM)=|include\.path=|includeIf\.|(^|[[:space:]])HOME=' "$STRIPPED"; then
+  echo "Blocked: git config from the environment or an unreadable file (--config-env, GIT_CONFIG_*, include.path, HOME) in the same call as a commit/push cannot be inspected. Set it with -c or in the repo config." >&2; exit 2
 fi
 # Re-pointing core.hooksPath anywhere in the same call (`git -c core.hooksPath=x commit`,
 # `git config core.hooksPath x; git commit`) is the same bypass as --no-verify.
@@ -461,14 +469,15 @@ fi
 # quote, or to the end of the line when it is unquoted.
 IDENT='(claude|chatgpt|copilot|cursor|cursoragent|github-actions|assistant|bot|ai[-_ ]?(agent|assistant|bot))'
 NAME=$(git config user.name 2>/dev/null || echo "")
-if has "(^|[^[:alnum:]])${IDENT}([^[:alnum:]]|\$)" "$NAME"; then
+if has "(^|[^[:alnum:]])${IDENT}[0-9]*([^[:alnum:]]|\$)" "$NAME"; then
   SAFE_NAME=$(tr -d '\n\r' <<<"$NAME" | cut -c1-40)   # repo-controlled text: one line, short, before it reaches the model
   echo "Blocked: git user.name '$SAFE_NAME' is not a human (CLAUDE.md §2)." >&2; exit 2
 fi
 # The stripped text has the unquoted forms with every quote splice undone (`user.name=Cla'ude'`); the
 # raw text has the quoted values (`--author="Claude Bot <...>"`), whose closing quote bounds them.
-if has "(user\.name=|GIT_(AUTHOR|COMMITTER)_NAME=|--author[= ])([^[:space:]]*[^[:alnum:][:space:]])?${IDENT}([^[:alnum:]]|\$)" "$STRIPPED" ||
-   has "(user\.name=|GIT_(AUTHOR|COMMITTER)_NAME=|--author[= ])[\"']([^\"']*[^[:alnum:]\"'])?${IDENT}([^[:alnum:]]|\$)" "$CMD"; then
+if has "(user\.name=|GIT_(AUTHOR|COMMITTER)_NAME=|--author[= ])([^[:space:]]*[^[:alnum:][:space:]])?${IDENT}[0-9]*([^[:alnum:]]|\$)" "$STRIPPED" ||
+   has "(user\.name=|GIT_(AUTHOR|COMMITTER)_NAME=|--author[= ])[\"']([^\"']*[^[:alnum:]\"'])?${IDENT}[0-9]*([^[:alnum:]]|\$)" "$CMD" ||
+   has "[\"'](user\.name=|GIT_(AUTHOR|COMMITTER)_NAME=|--author=)([^\"']*[^[:alnum:]\"'])?${IDENT}[0-9]*([^[:alnum:]]|\$)" "$CMD"; then
   echo "Blocked: the commit sets a committer or author that is not a human (CLAUDE.md §2)." >&2; exit 2
 fi
 

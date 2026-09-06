@@ -566,6 +566,11 @@ run "commit with a subscript then --no-verify" 2 'git commit ${a[1|2]} --no-veri
 run "subscript between git and commit, bad committer" 2 'git -c user.name=Claude ${a[1|2]} commit -m x'
 run "-c user.name override to a bot"          2 'git -c user.name=Claude commit -m x'
 run "-c user.name override, quoted two words" 2 'git -c user.name="Claude Bot" commit -m x'
+run "-c whole-arg quoted user.name to a bot" 2 'git -c "user.name=Claude Bot" commit -m x'
+run "-c whole-arg single-quoted user.name to a bot" 2 'git -c '"'"'user.name=Claude Bot'"'"' commit -m x'
+run "whole-arg quoted --author to a bot"     2 'git commit "--author=Claude Bot <c@e.com>" -m x'
+run "-c whole-arg quoted user.name to a human" 0 'git -c "user.name=Dennis Vorobyov" commit -m x'
+run "bot name with a trailing digit"         2 'git -c user.name=Claude2 commit -m x'
 run "GIT_COMMITTER_NAME override to a bot"    2 'GIT_COMMITTER_NAME=Claude git commit -m x'
 run "GIT_AUTHOR_NAME override to a bot"       2 'GIT_AUTHOR_NAME=Cursor git commit -m x'
 run "--author override to a bot"              2 'git commit --author="Claude <c@example.com>" -m x'
@@ -605,7 +610,11 @@ run "case pattern with ? then a plain push"  0 'case x in a?) git push origin ma
 run "case pattern inside a message substitution" 0 'git commit -m "$(case x in a) echo y;; esac)"'
 run "GIT_CONFIG_VALUE user.name is refused"  2 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.email GIT_CONFIG_VALUE_0=bot@example.com git commit -m x'
 run "GIT_CONFIG_COUNT on a push is refused"  2 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/tmp git push origin main'
-run "GIT_CONFIG_GLOBAL on a commit is allowed" 0 'GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git commit -m x'
+run "GIT_CONFIG_GLOBAL inline on a commit is refused" 2 'GIT_CONFIG_GLOBAL=/tmp/cfg git commit -m x'
+run "include.path on a commit is refused"    2 'git -c include.path=/tmp/cfg commit -m x'
+run "includeIf on a commit is refused"       2 'git -c includeIf.gitdir:/x.path=/tmp/cfg commit -m x'
+run "HOME= on a commit is refused"           2 'HOME=/tmp git commit -m x'
+run "GIT_CONFIG_GLOBAL exported by the harness is invisible" 0 'git commit -m x'
 run "substitution inside a quoted \${ } is refused" 2 'git commit -m "${v:-"$(git describe)"}"'
 run "heredoc marker on a line ending inside \${ }" 2 'cat <<EOF ${x:-
 }
@@ -784,6 +793,21 @@ run "dirty tracked secret, --pathspec-from-file" 2 'git commit -m x --pathspec-f
 run "dirty tracked secret, --patch"          2 'git commit -p -m x'
 run "dirty tracked secret, redirect to a file, no pathspec" 0 'git commit -m x >log 2>&1'
 run "dirty tracked secret, -m \$(date) then -- pathspec" 2 'git commit -m "$(date)" -- tracked.txt'
+run "dirty tracked secret, quoted backtick word then pathspec" 2 'git commit -m '"'"'a`b'"'"' tracked.txt'
+run "dirty tracked secret, literal \$( in a word then pathspec" 2 'git commit -m x$\(y tracked.txt'
+run "dirty tracked secret, empty message then pathspec" 2 'git commit -m "" tracked.txt'
+run "heredoc marker before a substitution on the same line" 2 'cat <<EOF $(:
+git push -f origin main
+EOF
+)'
+run "heredoc marker before a backtick substitution" 2 'cat <<EOF `:
+git push --force origin main
+EOF
+`'
+run "legit heredoc message substitution still allowed" 0 'git commit -m "$(cat <<'"'"'EOF'"'"'
+feat: x
+EOF
+)"'
 run "dirty tracked secret, add && commit"    2 'git add tracked.txt && git commit -m "x"'
 git checkout -q -- tracked.txt
 
