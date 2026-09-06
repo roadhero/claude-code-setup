@@ -883,6 +883,19 @@ run "reuse-message commit -c with a variable sha is allowed" 0 'git commit -c ${
 run "reuse-message commit -C with a substitution sha is allowed" 0 'git commit -C "$(git rev-parse HEAD)" -m x'
 run "git -C chdir from a variable is allowed"  0 'git -C "$repo" push origin main'
 run "commit then chained push, reuse sha, allowed" 0 'git commit -c ${sha} -m x && git push origin main'
+run "git config user.name to a bot then commit" 2 'git config user.name Claude && git commit -am x'
+run "git config user.name quoted bot then commit" 2 'git config user.name "Claude" && git commit -m x'
+run "git config user.name two-word bot then commit" 2 'git config user.name "Claude Bot" && git commit -m x'
+run "git config --local user.name bot then commit" 2 'git config --local user.name Cursor && git commit -am x'
+run "git config set user.name bot then commit" 2 'git config set user.name Claude && git commit -m x'
+run "git config user.email bot then commit"   2 'git config user.email bot@anthropic.com && git commit -m x'
+run "git config user.name github-actions then commit" 2 'git config user.name "github-actions" && git commit -m x'
+run "case-mismatched -c User.Name from expansion" 2 'git -c User.Name=${x:-Claude} commit -m x'
+run "git config user.name human then commit"  0 'git config user.name "Dennis Vorobyov" && git commit -m x'
+run "git config core.editor then commit"      0 'git config core.editor vim && git commit -m x'
+run "git config user.email human then commit" 0 'git config user.email denny@example.com && git commit -m x'
+run "git config commit.gpgsign then commit"   0 'git config commit.gpgsign true && git commit -m x'
+run "brace default carrying = is a config token" 2 'git commit --trailer ${x:-Acked-by=me} -m x'
 run "heredoc marker before a substitution on the same line" 2 'cat <<EOF $(:
 git push -f origin main
 EOF

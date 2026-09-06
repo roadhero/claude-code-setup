@@ -23,14 +23,14 @@
 # in the same call as a commit or push (`git config alias.st status; git commit`, `git commit -m x
 # alias.md`), a substitution inside `${...}` (`${v:-$(git describe)}`), a one-word quoted argument
 # that spells a flag or subcommand (`-m "--no-verify"`, `-m "eval"`, `tag -m "push" -f`), a quoted
-# identity inside a message (`-m "set user.name='claude'"`), a `-n` or `-f` on another
+# identity inside a message (`-m "set user.name='claude'"`, `-m "run git config user.name claude"`), a `-n` or `-f` on another
 # command inside the same `$(...)` as a commit or push (`-m "$(git log -1 | head -n 1)"`),
 # `--force-if-includes` on its own, `-S<keyid>` with an
 # `n` in the key id, an unquoted `*`, `?`, `[`, or `{a,b}` in a commit or push (bash expands it
 # when the command runs; quote it, or list the files), an expansion between a shell and its
-# option (`bash $a -c`: bash may see nothing there), a `${x}` in a commit or push whose default
-# or alternate value is itself a flag or a `+refspec` (`${x:---force}`, `${x:-+main}`, `${x:-"--force"}`; refused, since it may expand
-# to that flag), git config passed through the environment in
+# option (`bash $a -c`: bash may see nothing there), a `${x}` in a commit or push whose default or
+# alternate value is a flag, a `+refspec`, or a config token carrying `=` (`${x:---force}`, `${x:-+main}`,
+# `${x:-"--force"}`, `${x:-user.name=Claude}`; refused, since it may expand to that), git config passed through the environment in
 # a commit or push call (`--config-env`, `GIT_CONFIG_*`, `include.path`, `HOME=`, `XDG_CONFIG_HOME=`), a
 # `-c`/committer/author value taken from an expansion (`git -c ${x:-user.name=Claude}`; refused),
 # a commit message mentioning `-c core.hooksPath` or an unquoted `include.path`/`HOME=`/`XDG_CONFIG_HOME=`, a diff over 16 MB (commit
@@ -401,7 +401,8 @@ fi
 # A committer, author, or hooksPath value built from an expansion (`GIT_AUTHOR_NAME=C$(printf laude)`,
 # `-c user.name=$x`, `--author=A${y}`) is out of the walk's sight, so the identity/hooksPath checks
 # below never see it. Scan the stripped text (a quoted message is already dropped there, so a prose
-# mention is exempt); a real override keeps its literal `KEY=` and the value's expansion mark.
+# mention is exempt); a real override keeps its literal `KEY=` and the value's expansion mark. A
+# case-insensitive key (`User.Name=$x`) is caught by the config-position `-c` refuse in the loop below.
 # shellcheck disable=SC2016  # $ and ` are literal regex chars
 if hasc '(user\.name=|user\.email=|core\.hooksPath=|--author=|GIT_(AUTHOR|COMMITTER)_(NAME|EMAIL)=)[^[:space:]$`]*[[:space:]]*[$`]' "$STRIPPED"; then
   echo "Blocked: a committer, author, or hooksPath value built from a shell expansion cannot be inspected (CLAUDE.md §2). Set it to a literal, or set the variable first in its own call." >&2; exit 2
@@ -520,6 +521,12 @@ if has "(user\.name=|GIT_(AUTHOR|COMMITTER)_NAME=|--author[= ])([^[:space:]]*[^[
    has "(user\.name=|GIT_(AUTHOR|COMMITTER)_NAME=|--author[= ])[\"']([^\"']*[^[:alnum:]\"'])?${IDENT}[0-9]*([^[:alnum:]]|\$)" "$CMD" ||
    has "[\"'](user\.name=|GIT_(AUTHOR|COMMITTER)_NAME=|--author=)([^\"']*[^[:alnum:]\"'])?${IDENT}[0-9]*([^[:alnum:]]|\$)" "$CMD"; then
   echo "Blocked: the commit sets a committer or author that is not a human (CLAUDE.md §2)." >&2; exit 2
+fi
+# A same-call `git config [--flags] [set] user.name|user.email <bot>` write lands after this hook has
+# read the pre-execution repo config, so it evades the committer check above — the identity twin of the
+# same-call core.hooksPath write. Refuse a config write of a non-human name/email.
+if has "(^|[^[:alnum:]])config([[:space:]]+(--[A-Za-z-]+|set))*[[:space:]]+user\\.(name|email)[[:space:]]+[\"']?([^\"']*[^[:alnum:]\"'])?${IDENT}[0-9]*([^[:alnum:]]|[\"']|$)" "$CMD"; then
+  echo "Blocked: a same-call 'git config user.name/email' sets a committer that is not a human (CLAUDE.md §2). Set the identity to a literal human name, in its own call." >&2; exit 2
 fi
 
 # no AI attribution in the commit message — scan the command only, not the staged diff.
