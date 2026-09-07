@@ -276,6 +276,14 @@ run "word case split across a continuation" 2 'x="$(ca\
 se a in a) git push --force origin main;; esac)"'
 run "continuation with a leading space is a fresh case" 2 'x="$( \
  case a in a) git push --force origin main;; esac)"'
+run "stale fragment across a ; continuation then case hides a push" 2 'x="$(foo\
+; \
+case a in a) git push --force origin main;; esac)"'
+run "stale fragment across a ; continuation then case hides --no-verify" 2 'x="$(foo\
+; \
+case a in a) git commit --no-verify -m p;; esac)"'
+run "fresh case after a word then separator on a continuation" 2 'x="$(foo\
+; case a in a) git push --force origin main;; esac)"'
 run "case pattern then a chained push"       2 'git commit -m "$(case a in a) echo x;; esac)" && git push -f origin main'
 run "case statement in plain code"           2 'case x in x) echo hi;; esac
 git push -f origin main'
