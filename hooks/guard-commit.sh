@@ -52,7 +52,10 @@ has()  { grep -qiE -e "$1" <<<"$2"; local rc=$?; [ "$rc" -gt 1 ] && { echo "Bloc
 hasc() { grep -qE  -e "$1" <<<"$2"; local rc=$?; [ "$rc" -gt 1 ] && { echo "Blocked: guard-commit.sh grep failed. Failing closed." >&2; exit 2; }; return "$rc"; }
 
 # Fast path: this guard only concerns `git commit` / `git push`. If the payload mentions
-# neither, allow immediately — so a missing jq (below) never blocks unrelated Bash (ls/cat/grep).
+# neither, allow immediately — so a missing jq (below) does not block unrelated plain Bash
+# (ls/cat/grep). A command carrying a JSON `\u00XX` escape is the exception: it routes to jq
+# regardless (a fully `\u`-encoded git command has no literal word to match), so such a command
+# needs jq even when it is not a git command. jq is a documented hard dependency (§19.2).
 # Match loosely (no quote-class): a quoted arg before the subcommand (`git -C "x" commit`)
 # must NOT slip past into a silent allow. grep exit 1 = no match; anything else = error.
 FLAT=$(tr '\n' ' ' <<<"$INPUT") || FLAT=$INPUT   # a pretty-printed payload must not split the match across lines
@@ -69,9 +72,13 @@ if [ "$RC" -eq 1 ]; then
   fi
   grep -qiE 'git.*(commit|push)' <<<"$J"
   RC=$?
-  # Text no dequoting can reveal goes to the walker: an ANSI-C numeric escape (`$'\x70ush'`, the
-  # walker refuses it) or a JSON \u escape for an ASCII letter (jq decodes it; the walker sees it).
-  if [ "$RC" -eq 1 ] && has 'git|commit|push' "$J" && { hasc "\\\$'" "$FLAT" && hasc '\\\\[xuU0-7]' "$FLAT" || hasc '\\u00[0-9a-fA-F]{2}' "$FLAT"; }; then RC=0; fi
+  # Text no dequoting can reveal goes to the walker. A JSON \u escape for an ASCII byte is decoded by
+  # jq, so a command whose git/commit/push is fully \u-encoded still reaches the walker: route on the
+  # escape alone, not on a residual literal word. An ANSI-C numeric escape (`$'\x70ush'`) is decoded by
+  # the shell at run time, not jq, so it routes only when the command still mentions git/commit/push;
+  # a command whose every such word is ANSI-C-encoded is the documented splice limit.
+  if [ "$RC" -eq 1 ] && hasc '\\u00[0-9a-fA-F]{2}' "$FLAT"; then RC=0; fi
+  if [ "$RC" -eq 1 ] && has 'git|commit|push' "$J" && hasc "\\\$'" "$FLAT" && hasc '\\\\[xuU0-7]' "$FLAT"; then RC=0; fi
 fi
 case $RC in
   0) ;;
@@ -164,7 +171,16 @@ strip_data() {
   function inbrace(   k) { for (k = depth; k > 0; k--) if (kind[k] == "${") return 1; return 0 }   # inside a `${...}` word
   function fresh() { return (o == "" || o ~ /[ \t]$/ || substr(o, length(o), 1) == "\001") }   # a quote at the start of a word
   function heredocbeforesubst(   k) { for (k = depth; k > 0; k--) if ((kind[k] == "$(" || kind[k] == "`" || kind[k] == "<(") && pendat[k] > 0) return 1; return 0 }
-  BEGIN { q = 0; depth = 0; npend = 0; body = 0; cont = 0; casec[0] = 0; poppos = -1; poppedkind = ""; cmdpos = 1; kwlead = 0 }
+  # a complete word in command position: track case/esac depth and the command-position flag
+  function classify(w) {
+    if (cmdpos && w == "case") casec[depth]++
+    else if (cmdpos && w == "esac" && casec[depth] > 0) casec[depth]--
+    if (w == "if" || w == "then" || w == "else" || w == "elif" || w == "while" || w == "until" || w == "do") { cmdpos = 1; kwlead = 0 }
+    else if (w == "time" || w == "coproc") { cmdpos = 1; kwlead = 2 }   # `time -p cmd`, `coproc NAME cmd`: the command may be two words on the same line
+    else if (kwlead > 0) kwlead--
+    else cmdpos = 0
+  }
+  BEGIN { q = 0; depth = 0; npend = 0; body = 0; cont = 0; casec[0] = 0; poppos = -1; poppedkind = ""; cmdpos = 1; kwlead = 0; contword = "" }
   {
     line = $0
     if (index(line, "\001")) refuse("a control byte in the command")   # \001 is the walk'"'"'s own boundary mark
@@ -189,6 +205,10 @@ strip_data() {
     poppos = -1
     joined = cont; cont = 0                    # this line continues the previous one: no word starts at column 1
     if (q == 0 && !joined) cmdpos = 1
+    # a carried word fragment continues only if this joined line begins with a word character; if not,
+    # the deferred word was complete (a backslash-newline joined it onto a non-word char), so classify
+    # it now and drop it, rather than gluing it onto a later column-1 word
+    if (joined && q == 0 && contword != "" && (n < 1 || c[1] !~ /[A-Za-z0-9_]/)) { classify(contword); contword = "" }
     while (i <= n) {
       ch = c[i]
       if (q == 1) { if (ch == "\047") { q = 0; closeq() } else qb = qb ch; i++; continue }
@@ -314,21 +334,24 @@ strip_data() {
         }
         o = o "<<"; i = j; cmdpos = 0; continue
       }
-      if (ch ~ /[A-Za-z_]/ && ((i == 1 && !joined) || (i > 1 && c[i - 1] !~ /[A-Za-z0-9_]/))) {   # a word: track case ... esac in command position
-        j = i; w = ""
+      # a word: track case ... esac in command position. A continuation line (`joined`) is scanned at
+      # column 1 too, because a `<<WORD` backslash-newline joins `case` (or a split `ca`+`se`) onto the
+      # previous line, and that word must still be counted.
+      if (ch ~ /[A-Za-z_]/ && (i == 1 || (c[i - 1] !~ /[A-Za-z0-9_]/))) {
+        wi = i; j = i; w = ""
         while (j <= n && c[j] ~ /[A-Za-z0-9_]/) { w = w c[j]; j++ }
-        if (cmdpos && w == "case") casec[depth]++
-        else if (cmdpos && w == "esac" && casec[depth] > 0) casec[depth]--
-        if (w == "if" || w == "then" || w == "else" || w == "elif" || w == "while" || w == "until" || w == "do") { cmdpos = 1; kwlead = 0 }
-        else if (w == "time" || w == "coproc") { cmdpos = 1; kwlead = 2 }   # `time -p cmd`, `coproc NAME cmd`: the command may be two words on
-        else if (kwlead > 0) kwlead--
-        else cmdpos = 0
-        o = o w; i = j; continue
+        o = o w
+        if (wi == 1 && contword != "") { w = contword w; contword = "" }   # this word continues the previous line
+        i = j
+        if (j == n && c[j] == "\\") { contword = w; continue }   # runs into a line-ending backslash: decide once the whole word is seen
+        classify(w)
+        continue
       }
       if (ch != " " && ch != "\t" && kwlead == 0) cmdpos = 0
       o = o ch; i++
     }
     if (q == 1 || q == 2 || q == 3) qbad = 1    # a quoted span crossing a line is never glued
+    if (!cont) contword = ""            # a carried word fragment lives only across a backslash-newline
     if (q == 0 && !cont) droptests()
     # a body starts at the newline that ends the COMMAND (code state, no continuation), as in bash;
     # a `${...}` still open, or a `<<WORD` registered before a substitution opened on the line, means
