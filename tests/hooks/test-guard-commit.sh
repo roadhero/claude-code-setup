@@ -264,6 +264,18 @@ sh --force origin main'
 run "flag split across a continuation"       2 'git push --for\
 ce origin main'
 run "case pattern inside a quoted \$( )"     2 'x="$(case a in a) git push --force origin main;; esac)"'
+run "case at column 1 of a continuation line hides a push" 2 'x="$(\
+case a in a) git push --force origin main;; esac)"'
+run "case on a continuation hides --no-verify" 2 'x="$(\
+case a in a) git commit --no-verify -m p;; esac)"'
+run "time case on a continuation hides a push" 2 'x="$(\
+time case a in a) git push --force origin main;; esac)"'
+run "config user.name in a continuation case then commit" 2 'x="$(\
+case a in a) git config user.name Claude;; esac)" && git commit -m x'
+run "word case split across a continuation" 2 'x="$(ca\
+se a in a) git push --force origin main;; esac)"'
+run "continuation with a leading space is a fresh case" 2 'x="$( \
+ case a in a) git push --force origin main;; esac)"'
 run "case pattern then a chained push"       2 'git commit -m "$(case a in a) echo x;; esac)" && git push -f origin main'
 run "case statement in plain code"           2 'case x in x) echo hi;; esac
 git push -f origin main'
@@ -396,6 +408,9 @@ run "# on a continuation after echo"         2 'echo a\
 BS="\\"   # a literal backslash, so the JSON below really contains backslash-u escapes
 run_raw "JSON unicode escape in the subcommand" 2 '{"tool_input":{"command":"git pu'"$BS"'u0073h --force origin main"}}'
 run_raw "JSON unicode escape in git"         2 '{"tool_input":{"command":"g'"$BS"'u0069t push --force origin main"}}'
+run_raw "every word of git push force-push is unicode-escaped" 2 '{"tool_input":{"command":"'"$BS"'u0067'"$BS"'u0069'"$BS"'u0074 '"$BS"'u0070'"$BS"'u0075'"$BS"'u0073'"$BS"'u0068 --force origin main"}}'
+run_raw "every word of git commit no-verify is unicode-escaped" 2 '{"tool_input":{"command":"'"$BS"'u0067'"$BS"'u0069'"$BS"'u0074 '"$BS"'u0063'"$BS"'u006f'"$BS"'u006d'"$BS"'u006d'"$BS"'u0069'"$BS"'u0074 --no-verify -m x"}}'
+run_raw "unicode-escaped non-git command is allowed" 0 '{"tool_input":{"command":"'"$BS"'u006c'"$BS"'u0073 -la"}}'
 run_raw "pretty-printed payload"             2 '{
   "tool_input": {
     "command": "git push --force origin main"
