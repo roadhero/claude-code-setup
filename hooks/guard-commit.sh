@@ -176,7 +176,7 @@ strip_data() {
     if (cmdpos && w == "case") casec[depth]++
     else if (cmdpos && w == "esac" && casec[depth] > 0) casec[depth]--
     if (w == "if" || w == "then" || w == "else" || w == "elif" || w == "while" || w == "until" || w == "do") { cmdpos = 1; kwlead = 0 }
-    else if (w == "time" || w == "coproc") { cmdpos = 1; kwlead = 2 }   # `time -p cmd`, `coproc NAME cmd`: the command may be two words on
+    else if (w == "time" || w == "coproc") { cmdpos = 1; kwlead = 2 }   # `time -p cmd`, `coproc NAME cmd`: the command may be two words on the same line
     else if (kwlead > 0) kwlead--
     else cmdpos = 0
   }
