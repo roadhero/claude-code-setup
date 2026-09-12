@@ -72,6 +72,17 @@ The layer that wraps the four hats. `technical-program-manager` owns what / why 
 
 ---
 
+## 4C. Project Bootstrap
+
+When you start working in a repo that has **no root `CLAUDE.md`**, offer to create one before doing other work — don't proceed silently, and don't create it unless the user agrees. On yes:
+
+- **Bare repo** (no manifest or source — a fresh `git init`): use the `new-repo` skill for the full hygiene set (`.gitignore`, CI, docs stubs, and the `CLAUDE.md`).
+- **Populated repo** (the common case): create `./CLAUDE.md` from `~/.claude/templates/CLAUDE.project.md`, fill the §19 fields you can confidently detect now (stack, quality-gate commands), and leave the rest as `TODO`. Don't lay down the rest of the `new-repo` scaffolding in a repo that already has its own shape.
+
+Complete the remaining §19 `TODO`s over time as PRDs, specs, and READMEs reveal them. **Never fabricate** a version or a compliance scope, and **never overwrite** an existing `CLAUDE.md`. The `hooks/bootstrap-claude-md.sh` SessionStart hook fires this check automatically and stays silent once the file exists. Detection order and the bare-vs-populated test: `~/.claude/docs/bootstrap.md`.
+
+---
+
 ## 9. Stacked PR Workflow
 
 Shipping multiple related PRs in a session: local feature branch per ticket; **don't push the version-bump + CHANGELOG combo until the prior PR merges** (else both touch the same version lines and the second hits a rebase conflict); when it merges, `git checkout <protected> && git pull --ff-only`, then `git rebase <protected>` the next branch **locally** rather than relying on platform conflict-resolution (squash-merge SHAs don't match local commits). Full rebase discipline, the stash-and-checkout pitfall, and what to do between PR-open and merge (CI, review-thread replies with a pushed SHA, re-check after every push): `~/.claude/docs/git-workflows.md`.
@@ -157,12 +168,12 @@ Four no-code extensions cover almost everything before you'd fork the binary: **
 
 ### 19.1 What is this project?
 
-- **One-paragraph description:** This repository _is_ a distributed Claude Code configuration, not an application: a stack-agnostic engineering spine (this `CLAUDE.md`, §1–18), platform rule packs (`rules/`), a 42-agent roster across four stacks (`agents/`, `agents-android/`, `agents-ios/`, `agents-compute/`), two hooks — a commit guard and a format-on-save hook (`hooks/`) — and a repo-scaffolder skill (`skills/new-repo/`). Users copy it into `~/.claude/` and per-repo. The product is the configuration's correctness and internal consistency; nothing is compiled or deployed. Public, MIT: github.com/roadhero/claude-code-setup.
+- **One-paragraph description:** This repository _is_ a distributed Claude Code configuration, not an application: a stack-agnostic engineering spine (this `CLAUDE.md`, §1–18), platform rule packs (`rules/`), a 42-agent roster across four stacks (`agents/`, `agents-android/`, `agents-ios/`, `agents-compute/`), three hooks — a commit guard, a format-on-save hook, and a session-start project-bootstrap hook (`hooks/`) — and a repo-scaffolder skill (`skills/new-repo/`). Users copy it into `~/.claude/` and per-repo. The product is the configuration's correctness and internal consistency; nothing is compiled or deployed. Public, MIT: github.com/roadhero/claude-code-setup.
 
 ### 19.2 Stack
 
 - **Language(s):** Markdown (spine/rules/agents/docs) + Bash targeting macOS system bash 3.2 (`hooks/*.sh`) + JSON (`settings.json`, `settings2.json`). No compiled code.
-- **Runtime / platform:** Claude Code CLI on macOS/Linux; hooks run via the user shell and `jq` is a hard runtime dependency of both hooks.
+- **Runtime / platform:** Claude Code CLI on macOS/Linux; hooks run via the user shell and `jq` is a hard runtime dependency of all three hooks (the commit-guard and bootstrap hooks also need `git`).
 - **Framework(s):** None (only Claude Code extension points — §18).
 - **Storage:** None.
 - **Build / package:** None — files are copied verbatim into `~/.claude/`; `package.json` is intentionally absent.
@@ -182,6 +193,7 @@ diff -q templates/CLAUDE.project.md skills/new-repo/templates/web/CLAUDE.md.tmpl
 diff -q templates/CLAUDE.project.md skills/new-repo/templates/android/CLAUDE.md.tmpl   # stay byte-identical
 bash tests/hooks/test-guard-commit.sh       # commit guard: stdin payload → exit code, one case per rule/regression
 bash tests/hooks/test-format.sh             # format hook: exit 0, touches only the tool's own target
+bash tests/hooks/test-bootstrap-claude-md.sh # bootstrap hook: SessionStart payload → nudge only when a git repo lacks a root CLAUDE.md
 # Optional, advisory (not installed by default; repo ships no markdownlint config):
 # npx --yes markdownlint-cli2 "**/*.md" "!skills/**/templates/**"
 ```
@@ -205,7 +217,7 @@ Requires `shellcheck`, `jq`, and `git` (the hooks need `jq` at runtime too) — 
 
 > Each override erodes the predictability §1–18 provides; treat them as debt with a documented reason. Review quarterly: can any be removed?
 
-- §19.3 replaces the build/unit/integration gate with static analysis (shellcheck + jq + a name-invariant grep + a copies-in-sync diff) plus behavioral tests for the two hooks — reason: this repo ships configuration; the hooks are its only executable code, so they are the only thing unit-tested.
+- §19.3 replaces the build/unit/integration gate with static analysis (shellcheck + jq + a name-invariant grep + a copies-in-sync diff) plus behavioral tests for the three hooks — reason: this repo ships configuration; the hooks are its only executable code, so they are the only thing unit-tested.
 - Release notes come from the GitHub Release body instead of a `CHANGELOG.md` — reason: no CHANGELOG is maintained here.
 - Platform rule-pack path-triggering (`rules/{web,android,ios,compute}.md`) never fires in this repo — it has no matching source files. Expected.
 

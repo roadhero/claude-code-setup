@@ -13,7 +13,8 @@
 ├── agents/                   # 15 GENERIC (global default)
 ├── hooks/
 │   ├── guard-commit.sh       # PreToolUse(Bash): block AI attribution, secrets, force-push, --no-verify, non-human committer
-│   └── format.sh             # PostToolUse(Edit|Write): auto-format by extension, all stacks
+│   ├── format.sh             # PostToolUse(Edit|Write): auto-format by extension, all stacks
+│   └── bootstrap-claude-md.sh # SessionStart: offer a project CLAUDE.md when a git repo has none
 ├── skills/new-repo/          # scaffolder
 └── docs/                     # on-demand reference (roster tables, §4 review checklist, error-recovery table, PR template, scaling) — the spine points here
 
@@ -28,7 +29,7 @@ Per-repo CLAUDE.md (§19 only; inherits spine + whichever rule pack your files p
    filled example     → examples/CLAUDE.example-web.md (fictional web SaaS, shows §19 filled in)
 
 Repo-only, not installed:
-   tests/hooks/               # behavioral tests for both hooks (stdin JSON → exit code); run by the §19.3 gate
+   tests/hooks/               # behavioral tests for all three hooks (stdin JSON → exit code); run by the §19.3 gate
    .github/workflows/gate.yml # CI: the §19.3 gate on every PR and on push to main
 ```
 
@@ -46,6 +47,7 @@ cp -R agents-android agents-ios agents-compute ~/.claude/   # per-stack packs (t
 cp hooks/*.sh           ~/.claude/hooks/ && chmod +x ~/.claude/hooks/*.sh
 cp -R skills/new-repo    ~/.claude/skills/
 mkdir -p ~/.claude/docs && cp -R docs/* ~/.claude/docs/   # on-demand reference the spine's ~/.claude/docs/* pointers resolve to
+mkdir -p ~/.claude/templates && cp templates/*.md ~/.claude/templates/   # the §4C bootstrap policy instantiates ~/.claude/templates/CLAUDE.project.md
 
 # per repo:
 cp templates/CLAUDE.project.md /path/to/repo/CLAUDE.md   # then fill §19  (or templates/CLAUDE.project.compute.md for C++/CUDA)
