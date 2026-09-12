@@ -38,3 +38,6 @@ jobs:
 
       - name: Format hook behavior
         run: bash tests/hooks/test-format.sh
+
+      - name: Bootstrap hook behavior
+        run: bash tests/hooks/test-bootstrap-claude-md.sh
