@@ -1,0 +1,9 @@
+# settings.json and settings2.json are hand-compacted on purpose: the permission
+# allow-lists are grouped by stack on single lines so they read as a table. Prettier's
+# defaults would expand each into ~60 lines, turning any one-line edit into an
+# unreviewable diff. Prettier is not part of the quality gate (§19.3), so it has no
+# business rewriting them. The hooks/format.sh PostToolUse hook honors this file, so
+# editing either settings file no longer triggers a reformat. Everything else
+# (Markdown, and real code in repos that use this config) is still formatted normally.
+settings.json
+settings2.json

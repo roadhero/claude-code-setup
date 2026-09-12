@@ -31,6 +31,7 @@ Per-repo CLAUDE.md (§19 only; inherits spine + whichever rule pack your files p
 Repo-only, not installed:
    tests/hooks/               # behavioral tests for all three hooks (stdin JSON → exit code); run by the §19.3 gate
    .github/workflows/gate.yml # CI: the §19.3 gate on every PR and on push to main
+   .prettierignore            # keeps format.sh's prettier off the hand-compacted settings*.json
 ```
 
 ## Install (Mac)
