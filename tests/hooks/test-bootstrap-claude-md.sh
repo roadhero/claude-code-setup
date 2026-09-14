@@ -21,10 +21,11 @@ feed() {
   jq -n --arg c "$1" '{hook_event_name:"SessionStart",source:"startup",cwd:$c}' | bash "$HOOK" 2>/dev/null
 }
 
-# emitted <stdout> <rc> : 0 when it is a valid SessionStart nudge with non-empty context
+# emitted <stdout> <rc> : 0 when a non-empty nudge was printed to stdout (the documented
+# SessionStart context idiom is plain text) and exit was clean
 emitted() {
   [ "$2" -eq 0 ] || return 1
-  printf '%s' "$1" | jq -e '.hookSpecificOutput | .hookEventName == "SessionStart" and (.additionalContext | length > 0)' >/dev/null 2>&1
+  [ -n "$1" ] && printf '%s' "$1" | grep -q "no CLAUDE.md at its root"
 }
 
 # silent <stdout> <rc> : 0 when nothing was emitted and exit was clean
