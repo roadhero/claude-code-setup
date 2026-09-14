@@ -14,6 +14,7 @@ Agents live under `.claude/agents/` (project) or `~/.claude/agents/` (user, all 
 - **Four-hat chain (§4):** `architect` (plan, read-only) → `senior-swe` (implement, mutating) → `code-reviewer` (adversarial review, read-only) → `qa` (verify, read-only). Plus `release-engineer` (release prep) and `docs-reconciler` (drift detection).
 - **Specialists (as the change warrants):** `security-reviewer`, `performance-engineer`, `db-migration-specialist`, `debugger`, `tech-writer`, `product-designer`, `devops-sre`.
 - **Delivery layer (§4B):** `technical-program-manager` (scope / sequence / risk), `scrum-master` (cadence / flow). Neither writes code.
+- **Utility (not a roster role):** `explorer` — a cheap, read-only search-and-report agent (pinned to a lighter model). Delegate broad searches and file reads to it: it does the grep/read churn in its own context and returns the conclusion, keeping file dumps out of the main model's context.
 - **Read-only vs mutating** is the `tools:` allowlist: read-only agents omit `Edit`/`Write` and are parallel-safe; mutating agents hold them and must run serially per branch. `concurrency:` is NOT a supported frontmatter field — don't add it.
 
 Full per-agent tables, invoke-when triggers, and the concurrency rationale: `~/.claude/docs/agents.md`. Per-stack override packs (`agents-android/` 7, `agents-ios/` 7, `agents-compute/` 13): see `STRUCTURE.md`.
@@ -168,7 +169,7 @@ Four no-code extensions cover almost everything before you'd fork the binary: **
 
 ### 19.1 What is this project?
 
-- **One-paragraph description:** This repository _is_ a distributed Claude Code configuration, not an application: a stack-agnostic engineering spine (this `CLAUDE.md`, §1–18), platform rule packs (`rules/`), a 42-agent roster across four stacks (`agents/`, `agents-android/`, `agents-ios/`, `agents-compute/`), three hooks — a commit guard, a format-on-save hook, and a session-start project-bootstrap hook (`hooks/`) — and a repo-scaffolder skill (`skills/new-repo/`). Users copy it into `~/.claude/` and per-repo. The product is the configuration's correctness and internal consistency; nothing is compiled or deployed. Public, MIT: github.com/roadhero/claude-code-setup.
+- **One-paragraph description:** This repository _is_ a distributed Claude Code configuration, not an application: a stack-agnostic engineering spine (this `CLAUDE.md`, §1–18), platform rule packs (`rules/`), a 42-agent roster across four stacks (`agents/`, `agents-android/`, `agents-ios/`, `agents-compute/`), a read-only `explorer` search utility (`agents/`, not part of the 42), three hooks — a commit guard, a format-on-save hook, and a session-start project-bootstrap hook (`hooks/`) — and a repo-scaffolder skill (`skills/new-repo/`). Users copy it into `~/.claude/` and per-repo. The product is the configuration's correctness and internal consistency; nothing is compiled or deployed. Public, MIT: github.com/roadhero/claude-code-setup.
 
 ### 19.2 Stack
 
