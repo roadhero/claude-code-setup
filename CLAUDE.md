@@ -202,7 +202,7 @@ Requires `shellcheck`, `jq`, and `git` (the hooks need `jq` at runtime too) — 
 
 ### 19.4 Current release pointers
 
-- **Live version:** v1.1.0 (annotated tag, latest on `main`).
+- **Live version:** v1.1.1 (annotated tag, latest on `main`).
 - **In flight:** none (set per session).
 - **CHANGELOG:** none — release notes are the GitHub Release body, generated from `git log` between tags.
 - **Spec / PRD:** `README.md` + `STRUCTURE.md` are canonical.
