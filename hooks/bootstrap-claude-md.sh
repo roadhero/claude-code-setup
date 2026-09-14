@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # SessionStart hook -- offer to bootstrap a project CLAUDE.md when the repo has none.
 #
-# Emits a one-line nudge (as additionalContext) telling Claude to act on the
-# project-bootstrap policy (CLAUDE.md section 4C). Stays completely silent unless
+# Emits a one-line nudge on stdout (the documented SessionStart context idiom) telling
+# Claude to act on the project-bootstrap policy (CLAUDE.md section 4C). Silent unless
 # ALL of these hold:
 #   - the session's directory is inside a git work tree,
 #   - the work-tree root is not the home directory (never bootstrap a dotfiles-in-$HOME
@@ -14,8 +14,8 @@
 # the tool's own target" rule (STRUCTURE.md).
 #
 # Contract: reads the SessionStart JSON payload on stdin (uses .cwd), prints either
-# nothing or one hookSpecificOutput JSON object, and exits 0. Requires jq and git,
-# already hard dependencies of this config's hooks.
+# nothing or one line of context to stdout, and exits 0. Requires jq (to read the
+# payload) and git, already hard dependencies of this config's hooks.
 
 set -u
 
@@ -42,5 +42,7 @@ canon=$(cd "$home" 2>/dev/null && pwd -P 2>/dev/null)
 
 msg="This repository has no CLAUDE.md at its root. Follow the project-bootstrap policy (CLAUDE.md section 4C): offer to create one before doing other work, and create it only if the user agrees. On yes, if the repo is essentially empty use the new-repo skill; otherwise create ./CLAUDE.md from the standard template at ~/.claude/templates/CLAUDE.project.md, fill the section 19 fields you can confidently detect now (stack, quality-gate commands), and leave the rest as TODO to complete as specs appear. Never overwrite an existing CLAUDE.md."
 
-jq -cn --arg c "$msg" '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$c}}'
+# Plain-text stdout is the documented way a SessionStart hook injects context Claude
+# can see; print the nudge and exit clean.
+printf '%s\n' "$msg"
 exit 0
