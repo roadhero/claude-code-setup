@@ -10,7 +10,7 @@
 │   ├── android.md            # Kotlin/Compose/Hilt/Room
 │   ├── ios.md                # Swift/SwiftUI/Swift6/App Store
 │   └── compute.md            # C++/CUDA/parallel-Python
-├── agents/                   # 15 GENERIC (global default)
+├── agents/                   # 15 GENERIC roster + explorer utility (global default)
 ├── hooks/
 │   ├── guard-commit.sh       # PreToolUse(Bash): block AI attribution, secrets, force-push, --no-verify, non-human committer
 │   ├── format.sh             # PostToolUse(Edit|Write): auto-format by extension, all stacks
