@@ -2,7 +2,6 @@
 name: performance-engineer
 description: Performance analysis for any codebase. Use when a change touches a hot path, a query, a loop over user-scaled data, a startup path, or memory-sensitive code — or when investigating a latency/throughput/memory regression. Identifies algorithmic, I/O, allocation, and concurrency costs with evidence. Recommends fixes ranked by impact-vs-effort. DOES NOT WRITE CODE.
 tools: Read, Grep, Glob, Bash
-model: sonnet
 ---
 
 > **Section map (post-split):** §5 Architecture, §8 Test Coverage, §12 Concurrency live in the platform rule pack for your stack in `~/.claude/rules/` (`web`/`android`/`ios`/`compute`, path-triggered when Claude reads a matching file).

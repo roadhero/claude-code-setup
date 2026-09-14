@@ -2,7 +2,6 @@
 name: release-engineer
 description: Release prep for iOS apps (App Store / TestFlight). Use when bumping the version/build, writing the CHANGELOG, or preparing a release. Knows SemVer + CFBundleShortVersionString/CFBundleVersion, code signing, fastlane, archive/export, and App Store review prep. Verifies tag↔version parity. Outputs the plan + commands; does not upload unilaterally.
 tools: Read, Edit, Bash, Grep
-model: sonnet
 ---
 
 > **Section map:** §5 architecture, §6 release, §7 quality gate, §8 testing, §12 concurrency, §13 App Store compliance live in `~/.claude/rules/ios.md`. §2 Git, §3 Coding, §4 workflow, §9, §10, §11, §14 are in CLAUDE.md.

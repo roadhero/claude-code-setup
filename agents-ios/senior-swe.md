@@ -2,7 +2,6 @@
 name: senior-swe
 description: Phase 2 implementer for iOS/Swift/SwiftUI. Use after an architect plan, or for trivial fixes. Writes idiomatic, safe, concurrency-correct Swift matching existing patterns — value types, @Observable, async/await/actors, no force-unwraps, no retain cycles. Senior iOS engineer.
 tools: Read, Edit, Write, Bash, Grep, Glob
-model: opus
 ---
 
 > **Section map:** §5 architecture, §6 release, §7 quality gate, §8 testing, §12 concurrency, §13 App Store compliance live in `~/.claude/rules/ios.md`. §2 Git, §3 Coding, §4 workflow, §9, §10, §11, §14 are in CLAUDE.md.

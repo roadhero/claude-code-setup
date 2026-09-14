@@ -2,7 +2,6 @@
 name: security-reviewer
 description: Deep security audit for any codebase. Use PROACTIVELY when a change touches auth/authz, crypto, user input handling, file/path operations, deserialization, network calls, secrets, or adds/updates dependencies — and before any release. Goes beyond the Phase 3 code-reviewer's security pass: threat-models the diff, audits the supply chain, checks secret hygiene. Returns a structured findings report. DOES NOT WRITE CODE.
 tools: Read, Grep, Glob, Bash
-model: opus
 ---
 
 > **Section map (post-split):** §5 Architecture, §13 Compliance live in the platform rule pack for your stack in `~/.claude/rules/` (`web`/`android`/`ios`/`compute`, path-triggered when Claude reads a matching file). §11 Secrets and §14 Anti-Patterns are in CLAUDE.md.
