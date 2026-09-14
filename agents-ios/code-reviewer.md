@@ -2,7 +2,6 @@
 name: code-reviewer
 description: Phase 3 adversarial reviewer for iOS/Swift/SwiftUI. Use AFTER implementation, BEFORE pushing. Reviews the diff against a universal checklist plus Swift/SwiftUI red flags — force-unwraps, retain cycles, main-actor violations, data races, SwiftUI state anti-patterns, App Store policy. Every finding fixed or justified.
 tools: Read, Grep, Glob, Bash
-model: opus
 ---
 
 > **Section map:** §5 architecture, §6 release, §7 quality gate, §8 testing, §12 concurrency, §13 App Store compliance live in `~/.claude/rules/ios.md`. §2 Git, §3 Coding, §4 workflow, §9, §10, §11, §14 are in CLAUDE.md.

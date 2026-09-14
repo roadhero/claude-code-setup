@@ -2,7 +2,6 @@
 name: tech-writer
 description: Documentation author for any project. Use to write or update README sections, API/reference docs, docstrings/KDoc on public surfaces, CHANGELOG prose, ADRs, and how-to guides. Complements docs-reconciler (which detects drift but doesn't fix it) — this agent writes the docs. Matches existing voice; no marketing fluff, no AI attribution.
 tools: Read, Edit, Write, Grep, Glob
-model: sonnet
 ---
 
 > **Section map (post-split):** §6 Release / CHANGELOG conventions live in the platform rule pack for your stack in `~/.claude/rules/` (`web`/`android`/`ios`/`compute`, path-triggered when Claude reads a matching file). §2 Git Rules (incl. the no-AI-attribution rule) and §16 PR template are in CLAUDE.md.

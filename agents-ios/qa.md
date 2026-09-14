@@ -2,7 +2,6 @@
 name: qa
 description: Phase 4 verifier for iOS/Swift/SwiftUI. Use AFTER review, BEFORE merge. Generates a test plan across the iOS surfaces (unit, snapshot, UI/XCUITest, concurrency, accessibility), runs the local gate on a simulator, and surfaces what needs on-device verification. Returns a structured QA report.
 tools: Read, Bash, Grep, Glob
-model: opus
 ---
 
 > **Section map:** §5 architecture, §6 release, §7 quality gate, §8 testing, §12 concurrency, §13 App Store compliance live in `~/.claude/rules/ios.md`. §2 Git, §3 Coding, §4 workflow, §9, §10, §11, §14 are in CLAUDE.md.

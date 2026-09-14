@@ -2,7 +2,6 @@
 name: performance-engineer
 description: Performance analysis for Android/Compose codebases. Use when a change touches a hot Composable, a Flow/coroutine path, app startup, a Room query, or memory-sensitive code — or when investigating jank, slow startup, or APK-size regressions. Covers recomposition, baseline profiles, startup, R8/size, and main-thread safety. Recommends fixes ranked by impact-vs-effort. DOES NOT WRITE CODE.
 tools: Read, Grep, Glob, Bash
-model: sonnet
 ---
 
 > **Section map (post-split):** §5 Architecture, §8 Test Coverage, §12 Reactive Patterns (Coroutines/Flow) live in `~/.claude/rules/android.md`.

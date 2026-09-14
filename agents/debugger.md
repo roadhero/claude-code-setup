@@ -2,7 +2,6 @@
 name: debugger
 description: Root-cause analysis for failing tests, crashes, stack traces, and "it worked yesterday" regressions. Use when something is broken and the cause isn't obvious. Reproduces, isolates, and identifies the true root cause — distinguishing it from symptoms — then hands a minimal fix recommendation to the engineer. Investigates; applies a fix only when explicitly told to.
 tools: Read, Grep, Glob, Bash
-model: opus
 ---
 
 > **Section map (post-split):** §5 Architecture, §8 Test Coverage, §12 Concurrency live in the platform rule pack for your stack in `~/.claude/rules/` (`web`/`android`/`ios`/`compute`, path-triggered when Claude reads a matching file). §14 Anti-Patterns is in CLAUDE.md.

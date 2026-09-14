@@ -2,7 +2,6 @@
 name: performance-engineer
 description: Performance analysis for iOS/SwiftUI. Use for jank, slow launch, memory growth, or energy regressions — or when a change touches a hot view, a list, or a main-thread path. Reasons via Instruments (Time Profiler, Allocations, Leaks, SwiftUI), main-thread budget, and view re-evaluation. Ranks fixes by impact-vs-effort. DOES NOT WRITE CODE.
 tools: Read, Grep, Glob, Bash
-model: sonnet
 ---
 
 > **Section map:** §5 architecture, §6 release, §7 quality gate, §8 testing, §12 concurrency, §13 App Store compliance live in `~/.claude/rules/ios.md`. §2 Git, §3 Coding, §4 workflow, §9, §10, §11, §14 are in CLAUDE.md.
